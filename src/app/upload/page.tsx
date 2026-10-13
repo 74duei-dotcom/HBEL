@@ -1,0 +1,225 @@
+'use client';
+// D1 자료 올리기: PDF 고르기 → 글자 추출(기기 안) → 드라이브 저장 → 읽기 준비
+import Link from 'next/link';
+import { useRef, useState } from 'react';
+import { useStore, saveDocContent } from '@/lib/store';
+import { extractPdf, guessTitle } from '@/lib/pdf';
+import { uploadFile, downloadFile, pickFromDrive } from '@/lib/drive';
+import { hasValidToken } from '@/lib/google';
+import type { DocKind, LibraryDoc } from '@/lib/types';
+import { errorMessage, nowIso, uid } from '@/lib/util';
+import { Icon } from '@/components/Icon';
+
+type Stage = 'waiting' | 'extracting' | 'uploading' | 'saving' | 'done' | 'error';
+
+interface Job {
+  key: string;
+  name: string;
+  size?: number;
+  file?: File;
+  driveId?: string;
+  stage: Stage;
+  progress: number;
+  message: string;
+  docId?: string;
+  warn?: string;
+}
+
+const STAGE_LABEL: Record<Stage, string> = {
+  waiting: '대기 중',
+  extracting: '글자 추출 중',
+  uploading: '드라이브에 올리는 중',
+  saving: '저장 중',
+  done: '완료',
+  error: '실패',
+};
+
+export default function UploadPage() {
+  const { upsertDoc, connect } = useStore();
+  const [kind, setKind] = useState<DocKind>('paper');
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const patch = (key: string, p: Partial<Job>) => setJobs((prev) => prev.map((j) => (j.key === key ? { ...j, ...p } : j)));
+
+  const addLocal = (files: FileList | null) => {
+    if (!files) return;
+    const list: Job[] = [];
+    for (const f of Array.from(files)) {
+      if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
+        setMsg(`"${f.name}"은(는) PDF가 아니에요. 영상은 PC 도우미 단계에서 올릴 수 있어요.`);
+        continue;
+      }
+      list.push({ key: uid('j'), name: f.name, size: f.size, file: f, stage: 'waiting', progress: 0, message: '' });
+    }
+    setJobs((prev) => [...prev, ...list]);
+  };
+
+  const addFromDrive = async () => {
+    setMsg('');
+    try {
+      if (!hasValidToken()) await connect();
+      const picked = await pickFromDrive();
+      setJobs((prev) => [...prev, ...picked.map((p) => ({ key: uid('j'), name: p.name, driveId: p.id, stage: 'waiting' as Stage, progress: 0, message: '' }))]);
+    } catch (e) {
+      setMsg(errorMessage(e));
+    }
+  };
+
+  const processOne = async (job: Job) => {
+    const id = uid('d');
+    const now = nowIso();
+    try {
+      patch(job.key, { stage: 'extracting', progress: 0, message: '' });
+      const buf = job.file ? await job.file.arrayBuffer() : await downloadFile(job.driveId!);
+      const res = await extractPdf(buf.slice(0), (done, total) => patch(job.key, { progress: done / total }));
+      if (res.sentenceCount === 0) {
+        throw new Error('글자를 찾지 못했어요. 스캔본 PDF는 PC 도우미 단계에서 글자 인식(OCR)을 지원해요.');
+      }
+      const doc: LibraryDoc = {
+        id,
+        title: guessTitle(res.pages, job.name),
+        kind,
+        fileName: job.name,
+        driveFileId: job.driveId,
+        pageCount: res.pageCount,
+        sentenceCount: res.sentenceCount,
+        lastPage: 0,
+        status: 'processing',
+        scanned: res.scanned,
+        createdAt: now,
+        updatedAt: now,
+      };
+      upsertDoc(doc);
+
+      let warn = res.scanned ? '글자가 적어 스캔본일 수 있어요. 빠진 문장이 있으면 PC 도우미 단계의 글자 인식을 써 주세요.' : '';
+      if (job.file && hasValidToken()) {
+        patch(job.key, { stage: 'uploading', progress: 0 });
+        const meta = await uploadFile(job.file, job.name, 'application/pdf', (r) => patch(job.key, { progress: r }));
+        doc.driveFileId = meta.id;
+      } else if (job.file) {
+        warn = (warn ? warn + ' ' : '') + '구글 드라이브에 연결되지 않아 이 기기에만 저장했어요.';
+      }
+
+      patch(job.key, { stage: 'saving', progress: 1 });
+      await saveDocContent({ id, pages: res.pages });
+      upsertDoc({ ...doc, status: 'ready' });
+      patch(job.key, { stage: 'done', docId: id, warn });
+    } catch (e) {
+      patch(job.key, { stage: 'error', message: errorMessage(e) });
+    }
+  };
+
+  const start = async () => {
+    setRunning(true);
+    setMsg('');
+    const pending = jobs.filter((j) => j.stage === 'waiting' || j.stage === 'error');
+    for (const j of pending) {
+      // 하나씩 처리 (휴대폰 메모리 보호)
+      await processOne(j);
+    }
+    setRunning(false);
+  };
+
+  const waitingCount = jobs.filter((j) => j.stage === 'waiting' || j.stage === 'error').length;
+
+  return (
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Link href="/" className="icon-btn" aria-label="닫기">
+            <Icon name="close" size={20} />
+          </Link>
+          <div className="topbar-title">
+            <strong>자료 올리기</strong>
+          </div>
+          <span style={{ width: 44 }} />
+        </div>
+      </header>
+
+      <main className="page no-tabs">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+          <button className="card" style={{ border: '2px dashed #9fb3bf', minHeight: 72 }} onClick={() => inputRef.current?.click()} disabled={running}>
+            <b>파일 선택</b>
+            <div className="small">이 기기에서 PDF</div>
+          </button>
+          <button className="card" style={{ minHeight: 72 }} onClick={addFromDrive} disabled={running}>
+            <b>구글 드라이브에서</b>
+            <div className="small">이미 올려둔 PDF</div>
+          </button>
+          <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => {
+            addLocal(e.target.files);
+            e.target.value = '';
+          }} />
+        </div>
+
+        <div className="stack" style={{ gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>자료 종류</span>
+          <div className="seg" role="radiogroup" aria-label="자료 종류">
+            {(
+              [
+                ['paper', '논문'],
+                ['book', '전문서적'],
+              ] as [DocKind, string][]
+            ).map(([k, label]) => (
+              <button key={k} role="radio" aria-checked={kind === k} onClick={() => setKind(k)} disabled={running}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {msg && <div className="banner err">{msg}</div>}
+
+        {jobs.length > 0 && (
+          <div className="card flush">
+            {jobs.map((j) => (
+              <div key={j.key} className="list-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8, background: j.stage === 'error' ? 'var(--red-soft)' : undefined }}>
+                <div className="row">
+                  <span className="icon-btn" style={{ background: '#f7e9e6', color: 'var(--med)', borderRadius: 10, width: 38, height: 38 }} aria-hidden="true">
+                    <Icon name="pdf" size={18} />
+                  </span>
+                  <span className="grow stack" style={{ gap: 2 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.name}</span>
+                    <span className="small" style={{ color: j.stage === 'error' ? '#6e2312' : undefined }}>
+                      {j.driveId ? '구글 드라이브 · ' : ''}
+                      {j.size ? `${(j.size / 1024 / 1024).toFixed(1)}MB · ` : ''}
+                      {STAGE_LABEL[j.stage]}
+                    </span>
+                  </span>
+                  {j.stage === 'done' && j.docId && (
+                    <Link href={`/reader/?id=${j.docId}`} className="btn sm primary">
+                      읽기
+                    </Link>
+                  )}
+                  {(j.stage === 'waiting' || j.stage === 'error') && !running && (
+                    <button className="icon-btn" aria-label="목록에서 빼기" onClick={() => setJobs((prev) => prev.filter((x) => x.key !== j.key))}>
+                      <Icon name="close" size={18} />
+                    </button>
+                  )}
+                </div>
+                {['extracting', 'uploading', 'saving'].includes(j.stage) && (
+                  <span className="bar">
+                    <span style={{ width: `${Math.round(j.progress * 100)}%` }} />
+                  </span>
+                )}
+                {j.message && <span className="small" style={{ color: '#6e2312' }}>{j.message}</span>}
+                {j.warn && <span className="small" style={{ color: '#6b4600' }}>{j.warn}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="small" style={{ margin: 0, lineHeight: 1.6 }}>
+          글자 추출은 이 기기 안에서 처리하고, 원본은 구글 드라이브 ‘영어서재’ 폴더에 저장해요. 단어 뜻·한글 발음·번역은 읽을 때 필요한 문장만 AI에게 물어보고 저장해 두어 다시 묻지 않아요.
+        </p>
+
+        <button className="btn primary block" style={{ minHeight: 54, fontSize: 16 }} disabled={running || waitingCount === 0} onClick={start}>
+          {running ? '처리 중… 화면을 닫지 마세요' : waitingCount > 0 ? `${waitingCount}개 올리고 처리 시작` : '먼저 PDF를 골라 주세요'}
+        </button>
+      </main>
+    </>
+  );
+}

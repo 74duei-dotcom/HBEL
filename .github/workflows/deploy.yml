@@ -1,0 +1,55 @@
+# GitHub에 코드를 올리면(push) 자동으로 빌드해서 GitHub Pages에 배포합니다.
+# 휴대폰(갤럭시)은 https://<깃허브아이디>.github.io/HBEL/ 주소로 열고 '앱 설치'를 누르면 됩니다.
+#
+# 준비: GitHub 저장소 > Settings > Secrets and variables > Actions > Variables 탭에서 아래 4개를 등록
+#   GOOGLE_CLIENT_ID, GOOGLE_API_KEY, GOOGLE_PROJECT_NUMBER  (구글 클라우드에서 받은 값)
+#   (선택) CLAUDE_MODEL, GEMINI_MODEL
+# 그리고 Settings > Pages > Build and deployment > Source 를 "GitHub Actions" 로 선택
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          NEXT_PUBLIC_GOOGLE_API_KEY: ${{ vars.GOOGLE_API_KEY }}
+          NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER: ${{ vars.GOOGLE_PROJECT_NUMBER }}
+          NEXT_PUBLIC_CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
+          NEXT_PUBLIC_GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.5-flash-lite' }}
+      - run: touch out/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

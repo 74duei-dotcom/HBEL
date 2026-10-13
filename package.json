@@ -1,0 +1,27 @@
+{
+  "name": "english-library",
+  "version": "0.1.0",
+  "private": true,
+  "description": "영어 서재 - 내 논문·영상으로 공부하는 개인용 영어 학습 앱 (PWA)",
+  "scripts": {
+    "postinstall": "node scripts/copy-pdf-worker.mjs",
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "npx serve out -l 3000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "idb-keyval": "^6.2.1",
+    "next": "^16.0.0",
+    "pdfjs-dist": "^5.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ts-fsrs": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.0"
+  }
+}
