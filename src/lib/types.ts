@@ -15,6 +15,7 @@ export interface LibraryDoc {
   lastPage: number; // 0부터 시작
   status: DocStatus;
   scanned?: boolean; // 글자가 거의 없는 스캔본 PDF
+  duration?: number; // 강의 영상 길이(초). 있으면 영상 자료
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -24,7 +25,8 @@ export interface LibraryDoc {
 /** PDF에서 뽑아낸 본문 (문서마다 별도 파일로 저장) */
 export interface DocContent {
   id: string;
-  pages: { sentences: string[] }[];
+  /** 영상 자료는 한 "쪽" = 약 4분 구간, times = 문장별 시작 시각(초) */
+  pages: { sentences: string[]; times?: number[] }[];
 }
 
 /** 문장 하나에 대한 AI 분석 결과 */

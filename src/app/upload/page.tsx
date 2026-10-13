@@ -4,13 +4,15 @@ import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { useStore, saveDocContent } from '@/lib/store';
 import { extractPdf, guessTitle } from '@/lib/pdf';
+import { isVideoFile, saveVideo, transcribeVideo } from '@/lib/video';
+import { getGeminiKeys } from '@/lib/ai';
 import { uploadFile, downloadFile, pickFromDrive } from '@/lib/drive';
 import { hasValidToken } from '@/lib/google';
 import type { DocKind, LibraryDoc } from '@/lib/types';
 import { errorMessage, nowIso, uid } from '@/lib/util';
 import { Icon } from '@/components/Icon';
 
-type Stage = 'waiting' | 'extracting' | 'ocr' | 'uploading' | 'saving' | 'done' | 'error';
+type Stage = 'waiting' | 'extracting' | 'ocr' | 'listening' | 'uploading' | 'saving' | 'done' | 'error';
 
 interface Job {
   key: string;
@@ -29,6 +31,7 @@ const STAGE_LABEL: Record<Stage, string> = {
   waiting: '대기 중',
   extracting: '글자 추출 중',
   ocr: '스캔 글자 인식 중 (쪽마다 몇 초, 화면을 켜 두세요)',
+  listening: '영상 소리를 영어 자막으로 받아 적는 중 (화면을 켜 두세요)',
   uploading: '드라이브에 올리는 중',
   saving: '저장 중',
   done: '완료',
@@ -50,8 +53,9 @@ export default function UploadPage() {
     if (!files) return;
     const list: Job[] = [];
     for (const f of Array.from(files)) {
-      if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
-        setMsg(`"${f.name}"은(는) PDF가 아니에요. 영상은 아직 올릴 수 없어요.`);
+      const isPdf = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+      if (!isPdf && !isVideoFile(f)) {
+        setMsg(`"${f.name}"은(는) PDF나 영상이 아니에요.`);
         continue;
       }
       list.push({ key: uid('j'), name: f.name, size: f.size, file: f, stage: 'waiting', progress: 0, message: '' });
@@ -70,7 +74,45 @@ export default function UploadPage() {
     }
   };
 
+  const processVideo = async (job: Job, file: File) => {
+    const id = uid('d');
+    const now = nowIso();
+    try {
+      if (!getGeminiKeys().length) throw new Error('영상 자막은 Gemini 키가 필요해요. 설정의 AI 연결에서 Gemini 키를 넣어 주세요.');
+      patch(job.key, { stage: 'extracting', progress: 0, message: '' });
+      const res = await transcribeVideo(file, (p) => patch(job.key, p.phase === 'decode' ? { stage: 'extracting', progress: 0 } : { stage: 'listening', progress: p.done / p.total }));
+      if (res.sentenceCount === 0) throw new Error('영어 말소리를 찾지 못했어요. 소리가 없거나 영어가 아닌 영상일 수 있어요.');
+      const doc: LibraryDoc = {
+        id,
+        title: job.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim() || '강의 영상',
+        kind: 'lecture',
+        fileName: job.name,
+        pageCount: res.pages.length,
+        sentenceCount: res.sentenceCount,
+        lastPage: 0,
+        status: 'processing',
+        duration: res.duration,
+        createdAt: now,
+        updatedAt: now,
+      };
+      upsertDoc(doc);
+      patch(job.key, { stage: 'saving', progress: 1 });
+      await saveDocContent({ id, pages: res.pages });
+      let warn = 'AI가 들은 대로 받아 적은 자막이라 틀린 곳이 있을 수 있어요.';
+      try {
+        await saveVideo(id, file);
+      } catch {
+        warn += ' 영상 파일은 이 기기에 저장하지 못해 자막만 읽을 수 있어요.';
+      }
+      upsertDoc({ ...doc, status: 'ready' });
+      patch(job.key, { stage: 'done', docId: id, warn });
+    } catch (e) {
+      patch(job.key, { stage: 'error', message: errorMessage(e) });
+    }
+  };
+
   const processOne = async (job: Job) => {
+    if (job.file && !(job.file.type === 'application/pdf' || job.file.name.toLowerCase().endsWith('.pdf'))) return processVideo(job, job.file);
     const id = uid('d');
     const now = nowIso();
     try {
@@ -148,13 +190,13 @@ export default function UploadPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
           <button className="card" style={{ border: '2px dashed #9fb3bf', minHeight: 72 }} onClick={() => inputRef.current?.click()} disabled={running}>
             <b>파일 선택</b>
-            <div className="small">이 기기에서 PDF</div>
+            <div className="small">PDF 또는 강의 영상</div>
           </button>
           <button className="card" style={{ minHeight: 72 }} onClick={addFromDrive} disabled={running}>
             <b>구글 드라이브에서</b>
             <div className="small">이미 올려둔 PDF</div>
           </button>
-          <input ref={inputRef} type="file" accept="application/pdf,.pdf" multiple hidden onChange={(e) => {
+          <input ref={inputRef} type="file" accept="application/pdf,.pdf,video/*,audio/*,.mp4,.mov,.mkv,.mp3,.m4a" multiple hidden onChange={(e) => {
             addLocal(e.target.files);
             e.target.value = '';
           }} />
@@ -183,6 +225,10 @@ export default function UploadPage() {
             <span className="small">글자가 없는 쪽(사진·스캔)만 이 기기에서 읽어 와요. 쪽마다 몇 초 걸려 두꺼운 책은 오래 걸릴 수 있어요. 처음 한 번은 약 8MB를 내려받아요.</span>
           </span>
         </label>
+
+        <div className="small" style={{ lineHeight: 1.6 }}>
+          강의 영상(mp4·mp3 등)도 올릴 수 있어요. PC에서 올리는 것을 권해요. 소리를 4분씩 나눠 Gemini가 영어 자막으로 받아 적으며, 10분 영상에 1~3분 걸려요. 영상 파일은 이 기기에만 저장되고 구글 드라이브에는 올리지 않아요.
+        </div>
 
         {msg && <div className="banner err">{msg}</div>}
 
@@ -213,7 +259,7 @@ export default function UploadPage() {
                     </button>
                   )}
                 </div>
-                {['extracting', 'ocr', 'uploading', 'saving'].includes(j.stage) && (
+                {['extracting', 'ocr', 'listening', 'uploading', 'saving'].includes(j.stage) && (
                   <span className="bar">
                     <span style={{ width: `${Math.round(j.progress * 100)}%` }} />
                   </span>

@@ -115,6 +115,7 @@ export async function saveAnalysis(cache: DocAnalysisCache): Promise<void> {
 export async function removeDocFiles(id: string): Promise<void> {
   await idbDel(`doc:${id}`);
   await idbDel(`ana:${id}`);
+  await idbDel(`video:${id}`);
   if (hasValidToken()) {
     await deleteAppFile(`doc-${id}.json`).catch(() => undefined);
     await deleteAppFile(`ana-${id}.json`).catch(() => undefined);

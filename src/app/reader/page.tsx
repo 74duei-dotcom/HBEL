@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { activeVocab, loadAnalysis, loadDocContent, removeDocFiles, saveAnalysis, useStore } from '@/lib/store';
 import { analyzeSentences } from '@/lib/claude';
 import { driveViewUrl } from '@/lib/drive';
+import { formatTime, loadVideo, saveVideo } from '@/lib/video';
 import { speak, stopSpeaking, canSpeak } from '@/lib/speech';
 import type { DocAnalysisCache, DocContent, GrammarAnalysis, WordInfo } from '@/lib/types';
 import { cleanWord, errorMessage, tokenize } from '@/lib/util';
@@ -41,6 +42,12 @@ function ReaderInner() {
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
   const initDone = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoChecked, setVideoChecked] = useState(false);
+  const pageRef = useRef(0);
+  pageRef.current = page;
+  const isLecture = !!doc?.duration;
 
   // 본문과 분석 캐시 불러오기
   useEffect(() => {
@@ -68,6 +75,28 @@ function ReaderInner() {
       stopSpeaking();
     };
   }, [id]);
+
+  // 강의 영상 파일 (이 기기에 저장돼 있을 때만)
+  useEffect(() => {
+    if (!id || !doc?.duration) return;
+    let url = '';
+    let alive = true;
+    loadVideo(id)
+      .then((b) => {
+        if (!alive) return;
+        if (b) {
+          url = URL.createObjectURL(b);
+          setVideoUrl(url);
+        }
+        setVideoChecked(true);
+      })
+      .catch(() => alive && setVideoChecked(true));
+    return () => {
+      alive = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, !!doc?.duration]);
 
   // 마지막으로 읽던 쪽에서 시작
   useEffect(() => {
@@ -172,6 +201,47 @@ function ReaderInner() {
     if (np !== doc.lastPage) upsertDoc({ ...doc, lastPage: np });
   };
 
+  const attachVideo = async (f: File | undefined) => {
+    if (!f || !doc) return;
+    try {
+      await saveVideo(doc.id, f);
+      setVideoUrl((old) => {
+        if (old) URL.revokeObjectURL(old);
+        return URL.createObjectURL(f);
+      });
+    } catch (e) {
+      setLoadErr(errorMessage(e));
+    }
+  };
+
+  /** 영상이 재생되는 동안 지금 시각에 맞는 쪽·문장을 따라감 */
+  const followVideo = () => {
+    const v = videoRef.current;
+    if (!v || !content) return;
+    const t = v.currentTime;
+    let p = -1;
+    for (let k = 0; k < content.pages.length; k++) {
+      const ts = content.pages[k].times;
+      if (ts?.length && ts[0] <= t + 0.5) p = k;
+    }
+    if (p < 0) return;
+    const ts = content.pages[p].times ?? [];
+    let i = 0;
+    for (let k = 0; k < ts.length; k++) if (ts[k] <= t + 0.3) i = k;
+    if (p !== pageRef.current) setPage(p);
+    setCur(i);
+  };
+
+  const seekTo = (i: number) => {
+    const v = videoRef.current;
+    const t = sentences.length ? content?.pages[page]?.times?.[i] : undefined;
+    setCur(i);
+    if (v && t !== undefined) {
+      v.currentTime = Math.max(0, t - 0.3);
+      void v.play();
+    }
+  };
+
   const playSentence = (i: number) => {
     const s = sentences[i];
     if (!s) return;
@@ -181,6 +251,12 @@ function ReaderInner() {
   };
 
   const togglePlay = () => {
+    const v = videoRef.current;
+    if (v && videoUrl) {
+      if (v.paused) seekTo(cur);
+      else v.pause();
+      return;
+    }
     if (playing) {
       stopSpeaking();
       setPlaying(false);
@@ -268,14 +344,35 @@ function ReaderInner() {
             <article className="card read stack" style={{ gap: 6 }}>
               <div className="between" style={{ fontFamily: 'var(--font-ui)' }}>
                 <span className="small" style={{ fontWeight: 700, letterSpacing: 0.3 }}>
-                  {page + 1}쪽 · 단어를 누르면 뜻
+                  {isLecture ? `${formatTime(content.pages[page]?.times?.[0] ?? 0)} 부터` : `${page + 1}쪽`} · 단어를 누르면 뜻
                 </span>
-                {doc.driveFileId && (
+                {!isLecture && doc.driveFileId && (
                   <a href={driveViewUrl(doc.driveFileId)} target="_blank" rel="noreferrer" className="small" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minHeight: 32 }}>
                     원본 PDF <Icon name="external" size={14} />
                   </a>
                 )}
               </div>
+
+              {isLecture && videoUrl && (
+                <video
+                  ref={videoRef}
+                  src={videoUrl}
+                  controls
+                  playsInline
+                  onTimeUpdate={followVideo}
+                  onPlay={() => setPlaying(false)}
+                  style={{ width: '100%', maxHeight: '38vh', background: '#000', borderRadius: 10, position: 'sticky', top: 64, zIndex: 5 }}
+                />
+              )}
+              {isLecture && videoChecked && !videoUrl && (
+                <div className="banner warn" style={{ fontFamily: 'var(--font-ui)', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+                  <span>이 기기에는 영상 파일이 없어요. 자막은 그대로 읽을 수 있어요. 같은 영상 파일을 연결하면 문장을 눌러 그 장면을 볼 수 있어요.</span>
+                  <label className="btn sm" style={{ cursor: 'pointer' }}>
+                    영상 파일 연결
+                    <input type="file" accept="video/*,audio/*" hidden onChange={(e) => void attachVideo(e.target.files?.[0])} />
+                  </label>
+                </div>
+              )}
 
               {sentences.length === 0 && <p className="muted">이 쪽에는 글자가 없어요 (그림·표만 있는 쪽일 수 있어요).</p>}
 
@@ -290,6 +387,11 @@ function ReaderInner() {
                 const tokens = tokenize(s);
                 return (
                   <div key={k} className={`sentence${i === cur ? ' current' : ''}`}>
+                    {isLecture && videoUrl && content?.pages[page]?.times?.[i] !== undefined && (
+                      <button className="small" style={{ background: 'none', border: 'none', color: 'var(--teal)', minHeight: 28, padding: 0, fontFamily: 'var(--font-ui)' }} onClick={() => seekTo(i)}>
+                        ▶ {formatTime(content.pages[page].times![i])}
+                      </button>
+                    )}
                     <div className="tokens">
                       {tokens.map((t, ti) => {
                         const w = cleanWord(t).toLowerCase();
