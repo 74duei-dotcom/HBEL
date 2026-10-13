@@ -282,11 +282,52 @@ export function callGeminiWithAudio(system: string, user: string, audio: AudioIn
   return callGemini(system, user, maxTokens, audio);
 }
 
-const PING = 'Reply with the JSON object {"ok":true} and nothing else.';
-
-/** 넣으려는 Gemini 키 하나가 맞는지 확인 (저장 전에 호출) */
+/** 넣으려는 Gemini 키 하나가 맞는지 확인 (저장 전에 호출)
+ * - LLM 생성(generateContent) 대신 가벼운 모델 목록(GET /models)으로 빠르게 검증
+ * - 불필요한 토큰/무료 할당량 소모가 없고, Thinking 웜업 지연(20초 타임아웃)을 방지함
+ */
 export async function testGeminiKey(key: string): Promise<void> {
-  await geminiRequest(key.trim(), PING, 'ping', 20, undefined, { timeoutMs: 20000 });
+  const k = key.trim();
+  if (!k) throw new AIError('no-key', 'gemini', 'Gemini API 키를 입력해 주세요.');
+
+  let res: Response;
+  try {
+    res = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+      method: 'GET',
+      headers: {
+        'x-goog-api-key': k,
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      throw new AIError('network', 'gemini', 'AI 응답이 너무 늦어요. 인터넷 연결을 확인하고 다시 시도해 주세요.');
+    }
+    throw new AIError('network', 'gemini', '인터넷 연결이 끊겨 AI 키를 확인하지 못했어요.');
+  }
+
+  if (!res.ok) {
+    let detail = '';
+    let status = '';
+    try {
+      const e = (await res.json())?.error;
+      detail = e?.message ?? '';
+      status = `${e?.status ?? ''} ${JSON.stringify(e?.details ?? '')}`;
+    } catch {
+      /* 무시 */
+    }
+    if (/location is not supported|not available in your (country|region)/i.test(detail)) {
+      throw new AIError('bad-response', 'gemini', '이 지역에서는 Gemini를 쓸 수 없어요(지역 제한). VPN 등 네트워크 환경을 확인해 주세요.');
+    }
+    const invalid = res.status === 400 || res.status === 403 || status.includes('API_KEY_INVALID') || /api key not valid/i.test(detail);
+    if (invalid) {
+      const extra = detail ? ` (${detail.slice(0, 120)})` : '';
+      throw new AIError('bad-key', 'gemini', `Gemini API 키가 올바르지 않거나 쓸 수 없어요. 설정에서 다시 확인해 주세요.${extra}`);
+    }
+    if (res.status === 429) throw new AIError('rate-limit', 'gemini', 'Gemini 무료 한도에 도달했어요. 잠시 후 다시 시도해 주세요.');
+    if (res.status >= 500) throw new AIError('overloaded', 'gemini', 'Gemini 서버가 바빠요. 잠시 후 다시 시도해 주세요.');
+    throw new AIError('bad-response', 'gemini', `Gemini 오류(${res.status}) ${detail}`.trim());
+  }
 }
 
 /** 유튜브 영상(공개)의 한 구간을 Gemini가 보고 답함 */
