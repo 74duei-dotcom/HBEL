@@ -10,7 +10,7 @@ import type { DocKind, LibraryDoc } from '@/lib/types';
 import { errorMessage, nowIso, uid } from '@/lib/util';
 import { Icon } from '@/components/Icon';
 
-type Stage = 'waiting' | 'extracting' | 'uploading' | 'saving' | 'done' | 'error';
+type Stage = 'waiting' | 'extracting' | 'ocr' | 'uploading' | 'saving' | 'done' | 'error';
 
 interface Job {
   key: string;
@@ -28,6 +28,7 @@ interface Job {
 const STAGE_LABEL: Record<Stage, string> = {
   waiting: '대기 중',
   extracting: '글자 추출 중',
+  ocr: '스캔 글자 인식 중 (쪽마다 몇 초, 화면을 켜 두세요)',
   uploading: '드라이브에 올리는 중',
   saving: '저장 중',
   done: '완료',
@@ -40,6 +41,7 @@ export default function UploadPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState('');
+  const [ocr, setOcr] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const patch = (key: string, p: Partial<Job>) => setJobs((prev) => prev.map((j) => (j.key === key ? { ...j, ...p } : j)));
@@ -49,7 +51,7 @@ export default function UploadPage() {
     const list: Job[] = [];
     for (const f of Array.from(files)) {
       if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
-        setMsg(`"${f.name}"은(는) PDF가 아니에요. 영상은 PC 도우미 단계에서 올릴 수 있어요.`);
+        setMsg(`"${f.name}"은(는) PDF가 아니에요. 영상은 아직 올릴 수 없어요.`);
         continue;
       }
       list.push({ key: uid('j'), name: f.name, size: f.size, file: f, stage: 'waiting', progress: 0, message: '' });
@@ -74,9 +76,12 @@ export default function UploadPage() {
     try {
       patch(job.key, { stage: 'extracting', progress: 0, message: '' });
       const buf = job.file ? await job.file.arrayBuffer() : await downloadFile(job.driveId!);
-      const res = await extractPdf(buf.slice(0), (done, total) => patch(job.key, { progress: done / total }));
+      const res = await extractPdf(buf.slice(0), {
+        ocr,
+        onProgress: (done, total, phase) => patch(job.key, { stage: phase === 'ocr' ? 'ocr' : 'extracting', progress: done / total }),
+      });
       if (res.sentenceCount === 0) {
-        throw new Error('글자를 찾지 못했어요. 스캔본 PDF는 PC 도우미 단계에서 글자 인식(OCR)을 지원해요.');
+        throw new Error(ocr ? '글자를 찾지 못했어요. 사진이 너무 흐리거나 영어가 아닌 문서일 수 있어요.' : '글자를 찾지 못했어요. 스캔본이면 아래 "스캔본이면 글자 인식"을 켜고 다시 해 보세요.');
       }
       const doc: LibraryDoc = {
         id,
@@ -94,7 +99,7 @@ export default function UploadPage() {
       };
       upsertDoc(doc);
 
-      let warn = res.scanned ? '글자가 적어 스캔본일 수 있어요. 빠진 문장이 있으면 PC 도우미 단계의 글자 인식을 써 주세요.' : '';
+      let warn = res.ocrPages > 0 ? `${res.ocrPages}쪽을 글자 인식으로 읽었어요. 잘못 읽은 글자가 있을 수 있어요.` : res.scanned ? '글자가 적어 스캔본일 수 있어요. 빠진 문장이 있으면 글자 인식을 켜고 다시 올려 주세요.' : '';
       if (job.file && hasValidToken()) {
         patch(job.key, { stage: 'uploading', progress: 0 });
         const meta = await uploadFile(job.file, job.name, 'application/pdf', (r) => patch(job.key, { progress: r }));
@@ -171,6 +176,14 @@ export default function UploadPage() {
           </div>
         </div>
 
+        <label className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+          <input type="checkbox" checked={ocr} disabled={running} onChange={(e) => setOcr(e.target.checked)} style={{ marginTop: 4 }} />
+          <span className="stack" style={{ gap: 2 }}>
+            <span>스캔본이면 글자 인식(OCR)</span>
+            <span className="small">글자가 없는 쪽(사진·스캔)만 이 기기에서 읽어 와요. 쪽마다 몇 초 걸려 두꺼운 책은 오래 걸릴 수 있어요. 처음 한 번은 약 8MB를 내려받아요.</span>
+          </span>
+        </label>
+
         {msg && <div className="banner err">{msg}</div>}
 
         {jobs.length > 0 && (
@@ -200,7 +213,7 @@ export default function UploadPage() {
                     </button>
                   )}
                 </div>
-                {['extracting', 'uploading', 'saving'].includes(j.stage) && (
+                {['extracting', 'ocr', 'uploading', 'saving'].includes(j.stage) && (
                   <span className="bar">
                     <span style={{ width: `${Math.round(j.progress * 100)}%` }} />
                   </span>

@@ -9,6 +9,51 @@ export interface ExtractResult {
   pageCount: number;
   sentenceCount: number;
   scanned: boolean; // 글자가 거의 없으면 스캔본으로 판단
+  ocrPages: number; // 글자 인식(OCR)으로 읽은 쪽 수
+}
+
+export interface ExtractOptions {
+  /** 글자가 없는 쪽을 이미지로 그려 글자 인식(OCR)할지 */
+  ocr?: boolean;
+  onProgress?: (done: number, total: number, phase: 'text' | 'ocr') => void;
+}
+
+/** 이 글자 수보다 적은 쪽은 스캔 이미지로 보고 글자 인식 대상으로 삼음 */
+const OCR_MIN_CHARS = 40;
+
+type PdfPage = import('pdfjs-dist').PDFPageProxy;
+
+type OcrWorker = { recognize: (img: HTMLCanvasElement) => Promise<{ data: { text: string } }>; terminate: () => Promise<unknown> };
+
+async function createOcrWorker(): Promise<OcrWorker> {
+  const { createWorker } = await import('tesseract.js');
+  // 파일은 모두 이 앱 주소(public/ocr)에서 불러옴
+  return (await createWorker('eng', 1, {
+    workerPath: withBase('/ocr/worker.min.js'),
+    corePath: withBase('/ocr'),
+    langPath: withBase('/ocr'),
+    gzip: true,
+  })) as unknown as OcrWorker;
+}
+
+/** 쪽을 그림으로 그려 글자를 읽음 */
+async function ocrPage(
+  page: PdfPage,
+  worker: OcrWorker,
+): Promise<string[]> {
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('이미지를 그릴 수 없어요.');
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+  const { data } = await worker.recognize(canvas);
+  canvas.width = canvas.height = 0; // 메모리 바로 반환
+  return data.text
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .filter((l) => /[A-Za-z0-9]/.test(l));
 }
 
 type TextItem = { str: string; hasEOL?: boolean; transform?: number[] };
@@ -115,7 +160,8 @@ export function splitSentences(text: string): string[] {
   return merged.flatMap((s) => (s.length > 600 ? s.match(/.{1,400}(\s|$)/g)?.map((x) => x.trim()) ?? [s] : [s])).filter((s) => /[A-Za-z]/.test(s));
 }
 
-export async function extractPdf(data: ArrayBuffer, onProgress?: (done: number, total: number) => void): Promise<ExtractResult> {
+export async function extractPdf(data: ArrayBuffer, opts: ExtractOptions = {}): Promise<ExtractResult> {
+  const { ocr = false, onProgress } = opts;
   const pdfjs = await loadPdfJs();
   const doc = await pdfjs.getDocument({ data: new Uint8Array(data) }).promise;
   const pageCount = doc.numPages;
@@ -129,7 +175,28 @@ export async function extractPdf(data: ArrayBuffer, onProgress?: (done: number, 
     totalChars += lines.join('').length;
     pageLines.push(lines);
     page.cleanup();
-    onProgress?.(p, pageCount);
+    onProgress?.(p, pageCount, 'text');
+  }
+
+  // 글자가 없는 쪽(스캔 이미지)은 글자 인식(OCR)으로 채움
+  let ocrPages = 0;
+  const blank = ocr ? pageLines.map((l, i) => (l.join('').length < OCR_MIN_CHARS ? i : -1)).filter((i) => i >= 0) : [];
+  if (blank.length) {
+    const worker = await createOcrWorker();
+    try {
+      let n = 0;
+      for (const i of blank) {
+        const page = await doc.getPage(i + 1);
+        const lines = await ocrPage(page, worker);
+        page.cleanup();
+        pageLines[i] = lines;
+        totalChars += lines.join('').length;
+        ocrPages++;
+        onProgress?.(++n, blank.length, 'ocr');
+      }
+    } finally {
+      await worker.terminate();
+    }
   }
   await doc.destroy();
 
@@ -149,7 +216,7 @@ export async function extractPdf(data: ArrayBuffer, onProgress?: (done: number, 
 
   const sentenceCount = pages.reduce((n, pg) => n + pg.sentences.length, 0);
   const scanned = totalChars < pageCount * 80;
-  return { pages, pageCount, sentenceCount, scanned };
+  return { pages, pageCount, sentenceCount, scanned, ocrPages };
 }
 
 /** PDF 첫 줄들로 제목 짐작 (실패하면 파일 이름) */

@@ -49,6 +49,7 @@
 - [x] 실제 음성 TTS: Gemini 음성(gemini-3.8-flash-tts, Kore)으로 문장·단어 듣기, 기기 IndexedDB에 캐시, 실패 시 기기 음성으로 대체, 설정에서 선택·소리 확인
 
 ## 3단계
-- [ ] PC 도우미(Python, localhost:8765): 드라이브 데스크톱 폴더 감시, Whisper 영상 자막, 스캔 PDF 글자 인식(OCR), 영상 압축
+- [x] 스캔 PDF 글자 인식(OCR): PC 도우미 대신 앱 안에서 처리(tesseract.js, 파일은 public/ocr 자체 호스팅, 글자 없는 쪽만 인식) — 업로드 화면의 "스캔본이면 글자 인식" 옵션. 실제 책 스캔본 품질·속도는 사용자 점검 필요
+- [ ] PC 도우미(Python, localhost:8765): 드라이브 데스크톱 폴더 감시, Whisper 영상 자막, 영상 압축
 - [ ] 동영상 리더 화면 (설계 Video)
 - [ ] (선택) Capacitor로 APK 만들기 — Android용 OAuth 클라이언트 별도 필요
