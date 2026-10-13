@@ -84,8 +84,8 @@ export default function HomePage() {
             <Icon name="upload" size={20} />
           </span>
           <span className="stack" style={{ gap: 2 }}>
-            <b style={{ fontSize: 15 }}>PDF 올리기</b>
-            <span className="small">논문 · 전문서적 · 이 기기나 구글 드라이브에서</span>
+            <b style={{ fontSize: 15 }}>PDF · 강의 영상 올리기</b>
+            <span className="small">논문 · 전문서적 · 강의 영상 (영상은 PC 권장)</span>
           </span>
         </Link>
 
