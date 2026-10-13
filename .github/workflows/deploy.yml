@@ -39,6 +39,7 @@ jobs:
           NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER: ${{ vars.GOOGLE_PROJECT_NUMBER }}
           NEXT_PUBLIC_CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
           NEXT_PUBLIC_GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.5-flash-lite' }}
+          NEXT_PUBLIC_GEMINI_TTS_MODEL: ${{ vars.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts' }}
       - run: touch out/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:

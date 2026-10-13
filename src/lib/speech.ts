@@ -1,5 +1,30 @@
 'use client';
-// 원어민 음성 재생 (1단계: 기기에 내장된 영어 음성 사용, 2단계에서 미리 만든 음성 파일로 교체 예정)
+// 영어 음성 재생
+// - 기본: Gemini 음성(TTS)으로 자연스러운 원어민 소리. 한 번 만든 소리는 이 기기에 저장해 다시 쓰므로 같은 문장은 다시 요청하지 않음
+// - Gemini 키가 없거나 요청이 실패하면 기기에 내장된 영어 음성으로 대신 읽음
+// 사용하는 쪽은 speak / stopSpeaking / canSpeak 만 알면 됨
+
+import { get as idbGet, set as idbSet } from 'idb-keyval';
+import { GEMINI_TTS_MODEL, LS_KEYS } from './config';
+import { getGeminiKeys } from './ai';
+import { lsGet, lsSet } from './util';
+
+export type TtsEngine = 'gemini' | 'device';
+
+const VOICE_NAME = 'Kore';
+
+/** 설정에서 고른 음성 방식. 고른 적 없으면 Gemini 키가 있을 때 Gemini */
+export function getTtsEngine(): TtsEngine {
+  const v = lsGet(LS_KEYS.ttsEngine);
+  if (v === 'gemini' || v === 'device') return v;
+  return getGeminiKeys().length ? 'gemini' : 'device';
+}
+
+export function setTtsEngine(e: TtsEngine): void {
+  lsSet(LS_KEYS.ttsEngine, e);
+}
+
+/* ---------- 기기 내장 음성 ---------- */
 
 let cachedVoice: SpeechSynthesisVoice | null = null;
 
@@ -15,12 +40,15 @@ function pickVoice(): SpeechSynthesisVoice | null {
   return cachedVoice;
 }
 
-export function canSpeak(): boolean {
+function canDeviceSpeak(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window;
 }
 
-export function speak(text: string, rate = 1, onEnd?: () => void): void {
-  if (!canSpeak()) return;
+function deviceSpeak(text: string, rate: number, onEnd?: () => void): void {
+  if (!canDeviceSpeak()) {
+    onEnd?.();
+    return;
+  }
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'en-US';
@@ -34,12 +62,188 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
   window.speechSynthesis.speak(u);
 }
 
-export function stopSpeaking(): void {
-  if (canSpeak()) window.speechSynthesis.cancel();
-}
-
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   window.speechSynthesis.onvoiceschanged = () => {
     cachedVoice = null;
   };
+}
+
+/* ---------- Gemini 음성 ---------- */
+
+/** 지금 재생 중인 소리와, 오래된 요청을 걸러내기 위한 번호 */
+let current: HTMLAudioElement | null = null;
+let ticket = 0;
+/** 이번 접속에서 Gemini 음성이 계속 실패하면(한도·모델 문제 등) 더 시도하지 않고 기기 음성 사용 */
+let geminiFailures = 0;
+const memory = new Map<string, Blob>();
+
+/** 마지막 Gemini 음성 오류 (설정 화면에서 보여줌) */
+export let lastTtsError = '';
+
+function pcmToWav(pcm: Uint8Array, rate: number): Blob {
+  const header = new ArrayBuffer(44);
+  const v = new DataView(header);
+  const w = (o: number, s: string) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF');
+  v.setUint32(4, 36 + pcm.length, true);
+  w(8, 'WAVE');
+  w(12, 'fmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); // PCM
+  v.setUint16(22, 1, true); // 모노
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  w(36, 'data');
+  v.setUint32(40, pcm.length, true);
+  return new Blob([header, pcm as BlobPart], { type: 'audio/wav' });
+}
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function requestGeminiAudio(text: string): Promise<Blob> {
+  const keys = getGeminiKeys();
+  if (!keys.length) throw new Error('Gemini 키가 없어요.');
+  let lastErr = '';
+  for (const key of keys) {
+    let res: Response;
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text }] }],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
+          },
+        }),
+      });
+    } catch {
+      throw new Error('인터넷 연결을 확인해 주세요.');
+    }
+    if (res.status === 429 || res.status === 403) {
+      lastErr = res.status === 429 ? 'Gemini 무료 한도에 도달했어요.' : 'Gemini 키가 올바르지 않아요.';
+      continue; // 다음 키로
+    }
+    if (!res.ok) {
+      let detail = '';
+      try {
+        detail = (await res.json())?.error?.message ?? '';
+      } catch {
+        /* 무시 */
+      }
+      throw new Error(`Gemini 음성 오류(${res.status}) ${detail}`.trim());
+    }
+    const j = await res.json();
+    const parts: { inlineData?: { mimeType?: string; data?: string } }[] = j?.candidates?.[0]?.content?.parts ?? [];
+    const inline = parts.find((p) => p.inlineData?.data)?.inlineData;
+    if (!inline?.data) throw new Error('Gemini가 소리를 주지 않았어요.');
+    const bytes = b64ToBytes(inline.data);
+    const mime = inline.mimeType ?? '';
+    if (/wav|mpeg|mp3|ogg/i.test(mime)) return new Blob([bytes as BlobPart], { type: mime.split(';')[0] });
+    const rate = Number(/rate=(\d+)/i.exec(mime)?.[1] ?? 24000);
+    return pcmToWav(bytes, rate);
+  }
+  throw new Error(lastErr || 'Gemini 음성을 만들지 못했어요.');
+}
+
+async function getGeminiAudio(text: string): Promise<Blob> {
+  const key = `tts:${GEMINI_TTS_MODEL}:${VOICE_NAME}:${text}`;
+  const mem = memory.get(key);
+  if (mem) return mem;
+  try {
+    const saved = (await idbGet(key)) as Blob | undefined;
+    if (saved) {
+      memory.set(key, saved);
+      return saved;
+    }
+  } catch {
+    /* 저장소를 못 읽어도 새로 만들면 됨 */
+  }
+  const blob = await requestGeminiAudio(text);
+  memory.set(key, blob);
+  try {
+    await idbSet(key, blob);
+  } catch {
+    /* 저장 실패는 무시 */
+  }
+  return blob;
+}
+
+function stopCurrent(): void {
+  if (current) {
+    current.pause();
+    URL.revokeObjectURL(current.src);
+    current = null;
+  }
+}
+
+export function canSpeak(): boolean {
+  return canDeviceSpeak() || getGeminiKeys().length > 0;
+}
+
+export function speak(text: string, rate = 1, onEnd?: () => void): void {
+  const t = text.trim();
+  if (!t) {
+    onEnd?.();
+    return;
+  }
+  const mine = ++ticket;
+  stopCurrent();
+  if (canDeviceSpeak()) window.speechSynthesis.cancel();
+
+  if (getTtsEngine() !== 'gemini' || !getGeminiKeys().length || geminiFailures >= 2) {
+    deviceSpeak(t, rate, onEnd);
+    return;
+  }
+  void (async () => {
+    try {
+      const blob = await getGeminiAudio(t);
+      if (mine !== ticket) return; // 그 사이 다른 소리를 요청했거나 멈춤
+      geminiFailures = 0;
+      lastTtsError = '';
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      a.playbackRate = rate;
+      const done = () => {
+        if (current === a) {
+          URL.revokeObjectURL(url);
+          current = null;
+        }
+        if (mine === ticket) onEnd?.();
+      };
+      a.onended = done;
+      a.onerror = done;
+      current = a;
+      await a.play();
+    } catch (e) {
+      if (mine !== ticket) return;
+      geminiFailures++;
+      lastTtsError = e instanceof Error ? e.message : String(e);
+      deviceSpeak(t, rate, onEnd);
+    }
+  })();
+}
+
+export function stopSpeaking(): void {
+  ticket++;
+  stopCurrent();
+  if (canDeviceSpeak()) window.speechSynthesis.cancel();
+}
+
+/** 설정 화면의 "소리 확인": 실패하면 이유를 던짐 (기기 음성으로 대신하지 않음) */
+export async function testGeminiVoice(): Promise<void> {
+  const blob = await requestGeminiAudio('Hello. This is a test of the voice.');
+  const url = URL.createObjectURL(blob);
+  const a = new Audio(url);
+  a.onended = () => URL.revokeObjectURL(url);
+  await a.play();
+  geminiFailures = 0;
 }

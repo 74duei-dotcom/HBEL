@@ -9,6 +9,7 @@ export const withBase = (p: string) => `${BASE_PATH}${p}`;
 
 export const CLAUDE_MODEL = process.env.NEXT_PUBLIC_CLAUDE_MODEL || 'claude-haiku-5-5';
 export const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-3.5-flash-lite';
+export const GEMINI_TTS_MODEL = process.env.NEXT_PUBLIC_GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts';
 
 /** 드라이브 권한: 이 앱이 만들거나 사용자가 고른 파일만 + 앱 전용 숨김 폴더 */
 export const GOOGLE_SCOPES = [
@@ -24,6 +25,7 @@ export const LS_KEYS = {
   geminiKey: 'el.geminiKey', // 예전 단일 키 (geminiKeys로 옮겨짐)
   geminiKeys: 'el.geminiKeys',
   aiProvider: 'el.aiProvider',
+  ttsEngine: 'el.ttsEngine', // 'gemini' | 'device' (기본: Gemini 키가 있으면 gemini)
   googleToken: 'el.googleToken',
   googleConnected: 'el.googleConnected',
   setupDone: 'el.setupDone',

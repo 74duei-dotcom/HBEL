@@ -8,6 +8,7 @@ import { errorMessage } from '@/lib/util';
 import type { FontSize } from '@/lib/types';
 import { Icon } from '@/components/Icon';
 import { AIConnect } from '@/components/AIConnect';
+import { VoiceSettings } from '@/components/VoiceSettings';
 
 const SYNC_LABEL: Record<string, [string, string]> = {
   idle: ['연결됨', 'ok'],
@@ -166,6 +167,15 @@ export default function SettingsPage() {
           </h2>
           <div className="card">
             <AIConnect />
+          </div>
+        </section>
+
+        <section className="stack" style={{ gap: 6 }}>
+          <h2 className="small" style={{ margin: 0, fontWeight: 700 }}>
+            음성 · 문장 듣기
+          </h2>
+          <div className="card">
+            <VoiceSettings />
           </div>
         </section>
 
