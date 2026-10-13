@@ -33,12 +33,12 @@
 
 ## 작업 2. 실제 사용 점검 (사용자와 함께)
 - [x] 구글 연결 → PDF 올리기 → 드라이브 `영어서재` 폴더에 원본 생김 확인 (PC에서 확인 완료: 폴더 생성, 단어 뜻·저장·복습 카드 동작)
-- [ ] 단어 저장 → 다른 기기(휴대폰)에서 같은 단어 보임 확인
-- [ ] 문제 생기면 화면·오류 메시지 보고 수정
+- [x] 단어 저장 → 다른 기기(휴대폰)에서 같은 단어 보임 확인 (갤럭시에서 작동 확인 완료)
+- [x] 문제 생기면 화면·오류 메시지 보고 수정 (현재 남은 문제 없음)
 
 ## 작업 3. GitHub Pages 배포 + 갤럭시 설치
-- [ ] README 3번 절차대로 (저장소 이름 HBEL이면 주소는 `https://아이디.github.io/HBEL/`)
-- [ ] 구글 클라우드: 승인된 원본 `https://아이디.github.io`, Picker 키 웹사이트 제한 `https://아이디.github.io/*` 추가
+- [x] README 3번 절차대로 (저장소 74duei-dotcom/HBEL 생성·배포 완료: https://74duei-dotcom.github.io/HBEL/)
+- [x] 구글 클라우드: 승인된 원본 `https://74duei-dotcom.github.io`, Picker 키 웹사이트 제한 `https://74duei-dotcom.github.io/*` 추가 완료
 
 ---
 
