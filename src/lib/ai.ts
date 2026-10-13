@@ -99,11 +99,10 @@ export interface AIOptions {
   priority?: 'user' | 'bg';
 }
 
-// '생각 줄이기' 옵션: 모델 세대마다 지원 방식이 달라서 빠른 순서대로 시도하고, 통한 것을 기억함
-// 1순위: thinkingBudget 0 (Flash 모델에서 생각을 완전히 꺼서 1~2초 만에 초고속 응답)
-// 2순위: thinkingLevel 'minimal' (thinkingLevel 방식을 요구하는 모델)
-// 3순위: null (생각 옵션 없음)
-const THINK_MODES: (Record<string, unknown> | null)[] = [{ thinkingBudget: 0 }, { thinkingLevel: 'minimal' }, null];
+// '생각 줄이기' 옵션: 모델 세대마다 지원 방식이 달라서 순서대로 시도하고, 통한 것을 기억함
+// 1순위: thinkingLevel 'minimal' (최소 생각)
+// 2순위: null (생각 옵션 없음)
+const THINK_MODES: (Record<string, unknown> | null)[] = [{ thinkingLevel: 'minimal' }, null];
 let thinkMode = 0;
 
 const BG_SLOTS = 2;
@@ -137,8 +136,8 @@ function releaseBg(): void {
 /** 400 응답이 '생각(thinking) 옵션' 때문인지 확인 (본문은 복사본으로 읽어 원본은 그대로 둠) */
 async function mentionsThinking(res: Response): Promise<boolean> {
   try {
-    const msg: string = (await res.clone().json())?.error?.message ?? '';
-    return /think/i.test(msg);
+    const text: string = await res.clone().text();
+    return /think|invalid argument/i.test(text);
   } catch {
     return false;
   }
