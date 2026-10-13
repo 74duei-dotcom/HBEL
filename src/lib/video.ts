@@ -3,7 +3,7 @@
 // 영상 파일 자체는 이 기기에만 저장하고(IndexedDB) 구글 드라이브·AI에는 올리지 않음. AI에는 소리 조각만 보냄
 
 import { del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
-import { callGeminiWithAudio } from './ai';
+import { callGeminiWithAudio, callGeminiWithVideoUrl } from './ai';
 import { extractJson } from './claude';
 import { splitSentences } from './pdf';
 import type { DocContent } from './types';
@@ -189,4 +189,165 @@ export function formatTime(sec: number): string {
   const m = Math.floor((s % 3600) / 60);
   const r = s % 60;
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`;
+}
+
+/* ---------- 유튜브 ---------- */
+
+/** 유튜브 주소(watch, youtu.be, shorts, embed)에서 영상 ID를 뽑음. 아니면 null */
+export function parseYoutubeId(input: string): string | null {
+  try {
+    const u = new URL(input.trim());
+    const host = u.hostname.replace(/^www\.|^m\./, '');
+    let id = '';
+    if (host === 'youtu.be') id = u.pathname.slice(1).split('/')[0];
+    else if (host === 'youtube.com' || host === 'music.youtube.com') {
+      if (u.pathname === '/watch') id = u.searchParams.get('v') ?? '';
+      else {
+        const m = /^\/(shorts|embed|live)\/([\w-]{11})/.exec(u.pathname);
+        if (m) id = m[2];
+      }
+    }
+    return /^[\w-]{11}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 영상 제목 (실패하면 null) */
+export async function youtubeTitle(id: string): Promise<string | null> {
+  try {
+    const r = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + id)}&format=json`);
+    if (!r.ok) return null;
+    return ((await r.json()) as { title?: string }).title ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const YT_CHUNK = 600; // 10분씩
+const YT_MAX_CHUNKS = 18; // 최대 3시간
+
+const YT_SYSTEM = `You transcribe the English speech of a YouTube lecture or medical talk for a Korean learner.
+Return ONLY a JSON object: {"length":"MM:SS","segments":[{"t":"MM:SS","text":string}]}
+- "length" is the total running time of the whole video.
+- "t" is when the segment starts, counted from the START OF THE WHOLE VIDEO (absolute time, e.g. a segment 12 minutes in is "12:00").
+- Each segment is one or two natural, complete sentences, in the order spoken. Use correct punctuation and capitalization.
+- Write exactly what is said in English. Keep medical terms spelled correctly. Do not translate, summarize or add anything.
+- Skip filler sounds, music, and non-English speech. If there is no speech in the requested range, return {"segments":[]}.`;
+
+async function transcribeYoutubeRange(id: string, start: number, end: number): Promise<{ segs: { time: number; text: string }[]; length: number }> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const text = await callGeminiWithVideoUrl(
+        YT_SYSTEM,
+        `Transcribe only the speech between ${formatTime(start)} and ${formatTime(end)} of the video.`,
+        { fileUri: `https://www.youtube.com/watch?v=${id}`, startSec: start, endSec: end },
+        8000,
+      );
+      const j = extractJson<{ length?: unknown; segments?: { t?: unknown; text?: unknown }[] }>(text);
+      const segs = (Array.isArray(j.segments) ? j.segments : [])
+        .map((s) => {
+          let t = parseT(s?.t);
+          if (start > 0 && t < start - 5) t += start; // 구간 기준 시각으로 답했으면 보정
+          return { time: Math.max(start, t), text: String(s?.text ?? '').trim() };
+        })
+        .filter((s) => /[A-Za-z]/.test(s.text));
+      return { segs, length: parseT(j.length) };
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : '';
+      if (/한도|바빠|json|JSON/.test(msg) && attempt < 3) {
+        await sleep(attempt === 0 ? 8000 : 25000);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
+/** 유튜브 영상 → 영어 자막 문서 (10분 구간이 한 "쪽"). 영상 끝에 닿으면 멈춤 */
+export async function transcribeYoutube(id: string, onProgress?: (done: number) => void): Promise<VideoTranscript> {
+  const pages: DocContent['pages'] = [];
+  let chunks = YT_MAX_CHUNKS; // 영상 길이를 알게 되면 줄임
+  for (let c = 0; c < chunks; c++) {
+    onProgress?.(c);
+    const start = c * YT_CHUNK;
+    let segs: { time: number; text: string }[];
+    try {
+      const r = await transcribeYoutubeRange(id, start, start + YT_CHUNK);
+      segs = r.segs;
+      if (c === 0 && r.length >= 10 && r.length < YT_MAX_CHUNKS * YT_CHUNK) chunks = Math.max(1, Math.ceil(r.length / YT_CHUNK));
+    } catch (e) {
+      if (c > 0) break; // 영상 끝을 넘어선 구간이거나 일시 오류: 지금까지 받은 것으로 마무리
+      throw e;
+    }
+    if (!segs.length) {
+      if (c === 0) throw new Error('영어 말소리를 찾지 못했어요. 비공개·연령 제한 영상이거나 영어가 아닐 수 있어요.');
+      break;
+    }
+    const sentences: string[] = [];
+    const times: number[] = [];
+    for (const s of segs) {
+      const parts = splitSentences(s.text);
+      const list = parts.length ? parts : [s.text];
+      const totalLen = list.reduce((n, x) => n + x.length, 0) || 1;
+      let acc = 0;
+      for (const sent of list) {
+        sentences.push(sent);
+        times.push(Math.round((s.time + (acc / totalLen) * 6) * 10) / 10);
+        acc += sent.length;
+      }
+    }
+    pages.push({ sentences, times });
+  }
+  const sentenceCount = pages.reduce((n, p) => n + p.sentences.length, 0);
+  const lastTime = pages.length ? Math.max(...(pages[pages.length - 1].times ?? [0])) : 0;
+  return { pages, duration: lastTime, sentenceCount };
+}
+
+/* 유튜브 플레이어(IFrame API) */
+export interface YTPlayer {
+  seekTo(s: number, allowSeekAhead: boolean): void;
+  playVideo(): void;
+  pauseVideo(): void;
+  getCurrentTime(): number;
+  getPlayerState(): number;
+  destroy(): void;
+}
+
+let ytApi: Promise<void> | null = null;
+
+export function loadYouTubeApi(): Promise<void> {
+  if (ytApi) return ytApi;
+  ytApi = new Promise<void>((resolve, reject) => {
+    const w = window as unknown as { YT?: { Player?: unknown }; onYouTubeIframeAPIReady?: () => void };
+    if (w.YT?.Player) return resolve();
+    w.onYouTubeIframeAPIReady = () => resolve();
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    tag.onerror = () => {
+      ytApi = null;
+      reject(new Error('유튜브 플레이어를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'));
+    };
+    document.head.appendChild(tag);
+  });
+  return ytApi;
+}
+
+export function createYouTubePlayer(el: HTMLElement, videoId: string): Promise<YTPlayer> {
+  return loadYouTubeApi().then(
+    () =>
+      new Promise<YTPlayer>((resolve) => {
+        const YT = (window as unknown as { YT: { Player: new (e: HTMLElement, o: unknown) => YTPlayer } }).YT;
+        const p: YTPlayer = new YT.Player(el, {
+          videoId,
+          width: '100%',
+          height: '100%',
+          playerVars: { playsinline: 1, rel: 0 },
+          events: { onReady: () => resolve(p) },
+        });
+      }),
+  );
 }

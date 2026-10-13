@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { useStore, saveDocContent } from '@/lib/store';
 import { extractPdf, guessTitle } from '@/lib/pdf';
-import { isVideoFile, saveVideo, transcribeVideo } from '@/lib/video';
+import { isVideoFile, parseYoutubeId, saveVideo, transcribeVideo, transcribeYoutube, youtubeTitle } from '@/lib/video';
 import { getGeminiKeys } from '@/lib/ai';
 import { uploadFile, downloadFile, pickFromDrive } from '@/lib/drive';
 import { hasValidToken } from '@/lib/google';
@@ -20,6 +20,7 @@ interface Job {
   size?: number;
   file?: File;
   driveId?: string;
+  ytId?: string;
   stage: Stage;
   progress: number;
   message: string;
@@ -45,6 +46,7 @@ export default function UploadPage() {
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState('');
   const [ocr, setOcr] = useState(true);
+  const [url, setUrl] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const patch = (key: string, p: Partial<Job>) => setJobs((prev) => prev.map((j) => (j.key === key ? { ...j, ...p } : j)));
@@ -61,6 +63,50 @@ export default function UploadPage() {
       list.push({ key: uid('j'), name: f.name, size: f.size, file: f, stage: 'waiting', progress: 0, message: '' });
     }
     setJobs((prev) => [...prev, ...list]);
+  };
+
+  const addUrl = () => {
+    const id = parseYoutubeId(url);
+    if (!id) {
+      setMsg('유튜브 주소를 확인해 주세요. 예) https://www.youtube.com/watch?v=...');
+      return;
+    }
+    setMsg('');
+    setJobs((prev) => (prev.some((j) => j.ytId === id) ? prev : [...prev, { key: uid('j'), name: `유튜브 ${id}`, ytId: id, stage: 'waiting' as Stage, progress: 0, message: '' }]));
+    setUrl('');
+  };
+
+  const processYoutube = async (job: Job) => {
+    const id = uid('d');
+    const now = nowIso();
+    try {
+      if (!getGeminiKeys().length) throw new Error('유튜브 자막은 Gemini 키가 필요해요. 설정의 AI 연결에서 Gemini 키를 넣어 주세요.');
+      patch(job.key, { stage: 'listening', progress: 0, message: '' });
+      const title = (await youtubeTitle(job.ytId!)) ?? job.name;
+      patch(job.key, { name: title });
+      const res = await transcribeYoutube(job.ytId!, (done) => patch(job.key, { progress: done / (done + 1.5) }));
+      const doc: LibraryDoc = {
+        id,
+        title,
+        kind: 'lecture',
+        fileName: `youtube:${job.ytId}`,
+        pageCount: res.pages.length,
+        sentenceCount: res.sentenceCount,
+        lastPage: 0,
+        status: 'processing',
+        duration: res.duration,
+        youtubeId: job.ytId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      upsertDoc(doc);
+      patch(job.key, { stage: 'saving', progress: 1 });
+      await saveDocContent({ id, pages: res.pages });
+      upsertDoc({ ...doc, status: 'ready' });
+      patch(job.key, { stage: 'done', docId: id, warn: 'AI가 들은 대로 받아 적은 자막이라 틀린 곳이 있을 수 있어요.' });
+    } catch (e) {
+      patch(job.key, { stage: 'error', message: errorMessage(e) });
+    }
   };
 
   const addFromDrive = async () => {
@@ -112,6 +158,7 @@ export default function UploadPage() {
   };
 
   const processOne = async (job: Job) => {
+    if (job.ytId) return processYoutube(job);
     if (job.file && !(job.file.type === 'application/pdf' || job.file.name.toLowerCase().endsWith('.pdf'))) return processVideo(job, job.file);
     const id = uid('d');
     const now = nowIso();
@@ -230,6 +277,17 @@ export default function UploadPage() {
           강의 영상(mp4·mp3 등)도 올릴 수 있어요. PC에서 올리는 것을 권해요. 소리를 4분씩 나눠 Gemini가 영어 자막으로 받아 적으며, 10분 영상에 1~3분 걸려요. 영상 파일은 이 기기에만 저장되고 구글 드라이브에는 올리지 않아요.
         </div>
 
+        <div className="stack" style={{ gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>유튜브 주소로 추가</span>
+          <div className="row" style={{ gap: 8 }}>
+            <input className="input grow" style={{ padding: '0 10px' }} placeholder="https://www.youtube.com/watch?v=..." value={url} disabled={running} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addUrl()} />
+            <button className="btn" disabled={running || !url.trim()} onClick={addUrl}>
+              추가
+            </button>
+          </div>
+          <span className="small">공개 영상만 돼요(비공개·연령 제한 영상은 안 됨). 10분씩 나눠 받아 적고, 영상은 유튜브 화면 그대로 재생해요. 영상 파일을 내려받지 않아 휴대폰에서도 돼요.</span>
+        </div>
+
         {msg && <div className="banner err">{msg}</div>}
 
         {jobs.length > 0 && (
@@ -243,7 +301,7 @@ export default function UploadPage() {
                   <span className="grow stack" style={{ gap: 2 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.name}</span>
                     <span className="small" style={{ color: j.stage === 'error' ? '#6e2312' : undefined }}>
-                      {j.driveId ? '구글 드라이브 · ' : ''}
+                      {j.driveId ? '구글 드라이브 · ' : ''}{j.ytId ? '유튜브 · ' : ''}
                       {j.size ? `${(j.size / 1024 / 1024).toFixed(1)}MB · ` : ''}
                       {STAGE_LABEL[j.stage]}
                     </span>

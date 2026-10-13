@@ -136,7 +136,21 @@ export interface AudioInput {
   base64: string;
 }
 
-async function geminiRequest(key: string, system: string, user: string, maxTokens: number, audio?: AudioInput): Promise<string> {
+/** 유튜브 주소를 Gemini가 직접 보게 함 (공개 영상만, 구간 지정 가능) */
+export interface VideoUrlInput {
+  fileUri: string;
+  startSec: number;
+  endSec: number;
+}
+
+type MediaInput = AudioInput | VideoUrlInput;
+
+function mediaPart(m: MediaInput) {
+  if ('fileUri' in m) return { fileData: { fileUri: m.fileUri }, videoMetadata: { startOffset: `${m.startSec}s`, endOffset: `${m.endSec}s` } };
+  return { inlineData: { mimeType: m.mimeType, data: m.base64 } };
+}
+
+async function geminiRequest(key: string, system: string, user: string, maxTokens: number, audio?: MediaInput): Promise<string> {
   const p: AIProvider = 'gemini';
   let res: Response;
   try {
@@ -149,7 +163,7 @@ async function geminiRequest(key: string, system: string, user: string, maxToken
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: 'user', parts: audio ? [{ inlineData: { mimeType: audio.mimeType, data: audio.base64 } }, { text: user }] : [{ text: user }] }],
+        contents: [{ role: 'user', parts: audio ? [mediaPart(audio), { text: user }] : [{ text: user }] }],
         generationConfig: {
           responseMimeType: 'application/json',
           // 모델이 속으로 생각하는 분량도 이 한도에 포함될 수 있어 여유를 둠
@@ -194,7 +208,7 @@ async function geminiRequest(key: string, system: string, user: string, maxToken
 let geminiStart = 0;
 
 /** 키가 여러 개면 순서대로 시도: 한도 초과(429)·잘못된 키는 다음 키로 넘어감 */
-async function callGemini(system: string, user: string, maxTokens: number, audio?: AudioInput): Promise<string> {
+async function callGemini(system: string, user: string, maxTokens: number, audio?: MediaInput): Promise<string> {
   const keys = getGeminiKeys();
   if (!keys.length) throw new AIError('no-key', 'gemini', 'Gemini API 키가 없어요. 설정에서 입력해 주세요.');
   let lastErr: unknown;
@@ -236,4 +250,9 @@ export async function testClaudeKey(): Promise<void> {
 /** 넣으려는 Gemini 키 하나가 맞는지 확인 (저장 전에 호출) */
 export async function testGeminiKey(key: string): Promise<void> {
   await geminiRequest(key.trim(), PING, 'ping', 20);
+}
+
+/** 유튜브 영상(공개)의 한 구간을 Gemini가 보고 답함 */
+export function callGeminiWithVideoUrl(system: string, user: string, video: VideoUrlInput, maxTokens: number): Promise<string> {
+  return callGemini(system, user, maxTokens, video);
 }

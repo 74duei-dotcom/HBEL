@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { activeVocab, loadAnalysis, loadDocContent, removeDocFiles, saveAnalysis, useStore } from '@/lib/store';
 import { analyzeSentences } from '@/lib/claude';
 import { driveViewUrl } from '@/lib/drive';
-import { formatTime, loadVideo, saveVideo } from '@/lib/video';
+import { createYouTubePlayer, formatTime, loadVideo, saveVideo, type YTPlayer } from '@/lib/video';
 import { speak, stopSpeaking, canSpeak } from '@/lib/speech';
 import type { DocAnalysisCache, DocContent, GrammarAnalysis, WordInfo } from '@/lib/types';
 import { cleanWord, errorMessage, tokenize } from '@/lib/util';
@@ -47,7 +47,10 @@ function ReaderInner() {
   const [videoChecked, setVideoChecked] = useState(false);
   const pageRef = useRef(0);
   pageRef.current = page;
-  const isLecture = !!doc?.duration;
+  const ytRef = useRef<YTPlayer | null>(null);
+  const ytBox = useRef<HTMLDivElement>(null);
+  const ytId = doc?.youtubeId ?? '';
+  const isLecture = !!doc?.duration || !!ytId;
 
   // 본문과 분석 캐시 불러오기
   useEffect(() => {
@@ -78,7 +81,7 @@ function ReaderInner() {
 
   // 강의 영상 파일 (이 기기에 저장돼 있을 때만)
   useEffect(() => {
-    if (!id || !doc?.duration) return;
+    if (!id || !doc?.duration || ytId) return;
     let url = '';
     let alive = true;
     loadVideo(id)
@@ -97,6 +100,38 @@ function ReaderInner() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, !!doc?.duration]);
+
+  // 유튜브 플레이어: 재생 중에는 0.5초마다 시각을 보고 문장을 따라감
+  const followRef = useRef<(t: number) => void>(() => undefined);
+  useEffect(() => {
+    if (!ytId || !ytBox.current) return;
+    let alive = true;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const host = document.createElement('div');
+    ytBox.current.appendChild(host);
+    createYouTubePlayer(host, ytId)
+      .then((p) => {
+        if (!alive) {
+          p.destroy();
+          return;
+        }
+        ytRef.current = p;
+        timer = setInterval(() => {
+          if (p.getPlayerState() === 1) followRef.current(p.getCurrentTime());
+        }, 500);
+      })
+      .catch((e) => alive && setLoadErr(errorMessage(e)));
+    return () => {
+      alive = false;
+      if (timer) clearInterval(timer);
+      try {
+        ytRef.current?.destroy();
+      } catch {
+        /* 무시 */
+      }
+      ytRef.current = null;
+    };
+  }, [ytId, !!content]);
 
   // 마지막으로 읽던 쪽에서 시작
   useEffect(() => {
@@ -215,10 +250,8 @@ function ReaderInner() {
   };
 
   /** 영상이 재생되는 동안 지금 시각에 맞는 쪽·문장을 따라감 */
-  const followVideo = () => {
-    const v = videoRef.current;
-    if (!v || !content) return;
-    const t = v.currentTime;
+  const followAt = (t: number) => {
+    if (!content) return;
     let p = -1;
     for (let k = 0; k < content.pages.length; k++) {
       const ts = content.pages[k].times;
@@ -232,11 +265,21 @@ function ReaderInner() {
     setCur(i);
   };
 
+  followRef.current = followAt;
+  const followVideo = () => {
+    const v = videoRef.current;
+    if (v) followAt(v.currentTime);
+  };
+
   const seekTo = (i: number) => {
     const v = videoRef.current;
     const t = sentences.length ? content?.pages[page]?.times?.[i] : undefined;
     setCur(i);
-    if (v && t !== undefined) {
+    if (t === undefined) return;
+    if (ytRef.current) {
+      ytRef.current.seekTo(Math.max(0, t - 0.3), true);
+      ytRef.current.playVideo();
+    } else if (v) {
       v.currentTime = Math.max(0, t - 0.3);
       void v.play();
     }
@@ -252,6 +295,11 @@ function ReaderInner() {
 
   const togglePlay = () => {
     const v = videoRef.current;
+    if (ytRef.current) {
+      if (ytRef.current.getPlayerState() === 1) ytRef.current.pauseVideo();
+      else seekTo(cur);
+      return;
+    }
     if (v && videoUrl) {
       if (v.paused) seekTo(cur);
       else v.pause();
@@ -353,6 +401,7 @@ function ReaderInner() {
                 )}
               </div>
 
+              {ytId && <div ref={ytBox} style={{ width: '100%', aspectRatio: '16 / 9', maxHeight: '38vh', background: '#000', borderRadius: 10, overflow: 'hidden', position: 'sticky', top: 64, zIndex: 5 }} />}
               {isLecture && videoUrl && (
                 <video
                   ref={videoRef}
@@ -364,7 +413,7 @@ function ReaderInner() {
                   style={{ width: '100%', maxHeight: '38vh', background: '#000', borderRadius: 10, position: 'sticky', top: 64, zIndex: 5 }}
                 />
               )}
-              {isLecture && videoChecked && !videoUrl && (
+              {isLecture && !ytId && videoChecked && !videoUrl && (
                 <div className="banner warn" style={{ fontFamily: 'var(--font-ui)', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
                   <span>이 기기에는 영상 파일이 없어요. 자막은 그대로 읽을 수 있어요. 같은 영상 파일을 연결하면 문장을 눌러 그 장면을 볼 수 있어요.</span>
                   <label className="btn sm" style={{ cursor: 'pointer' }}>
@@ -387,7 +436,7 @@ function ReaderInner() {
                 const tokens = tokenize(s);
                 return (
                   <div key={k} className={`sentence${i === cur ? ' current' : ''}`}>
-                    {isLecture && videoUrl && content?.pages[page]?.times?.[i] !== undefined && (
+                    {isLecture && (videoUrl || ytId) && content?.pages[page]?.times?.[i] !== undefined && (
                       <button className="small" style={{ background: 'none', border: 'none', color: 'var(--teal)', minHeight: 28, padding: 0, fontFamily: 'var(--font-ui)' }} onClick={() => seekTo(i)}>
                         ▶ {formatTime(content.pages[page].times![i])}
                       </button>

@@ -16,6 +16,7 @@ export interface LibraryDoc {
   status: DocStatus;
   scanned?: boolean; // 글자가 거의 없는 스캔본 PDF
   duration?: number; // 강의 영상 길이(초). 있으면 영상 자료
+  youtubeId?: string; // 유튜브 영상이면 그 ID
   error?: string;
   createdAt: string;
   updatedAt: string;
