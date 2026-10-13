@@ -131,7 +131,12 @@ async function callClaude(system: string, user: string, maxTokens: number): Prom
     .join('');
 }
 
-async function geminiRequest(key: string, system: string, user: string, maxTokens: number): Promise<string> {
+export interface AudioInput {
+  mimeType: string;
+  base64: string;
+}
+
+async function geminiRequest(key: string, system: string, user: string, maxTokens: number, audio?: AudioInput): Promise<string> {
   const p: AIProvider = 'gemini';
   let res: Response;
   try {
@@ -144,7 +149,7 @@ async function geminiRequest(key: string, system: string, user: string, maxToken
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: 'user', parts: [{ text: user }] }],
+        contents: [{ role: 'user', parts: audio ? [{ inlineData: { mimeType: audio.mimeType, data: audio.base64 } }, { text: user }] : [{ text: user }] }],
         generationConfig: {
           responseMimeType: 'application/json',
           // 모델이 속으로 생각하는 분량도 이 한도에 포함될 수 있어 여유를 둠
@@ -189,14 +194,14 @@ async function geminiRequest(key: string, system: string, user: string, maxToken
 let geminiStart = 0;
 
 /** 키가 여러 개면 순서대로 시도: 한도 초과(429)·잘못된 키는 다음 키로 넘어감 */
-async function callGemini(system: string, user: string, maxTokens: number): Promise<string> {
+async function callGemini(system: string, user: string, maxTokens: number, audio?: AudioInput): Promise<string> {
   const keys = getGeminiKeys();
   if (!keys.length) throw new AIError('no-key', 'gemini', 'Gemini API 키가 없어요. 설정에서 입력해 주세요.');
   let lastErr: unknown;
   for (let n = 0; n < keys.length; n++) {
     const i = (geminiStart + n) % keys.length;
     try {
-      const text = await geminiRequest(keys[i], system, user, maxTokens);
+      const text = await geminiRequest(keys[i], system, user, maxTokens, audio);
       geminiStart = i;
       return text;
     } catch (e) {
@@ -214,6 +219,11 @@ async function callGemini(system: string, user: string, maxTokens: number): Prom
 /** 설정에서 고른 AI에게 물어보고 글자 그대로의 답을 돌려줌 (JSON 해석은 부르는 쪽에서) */
 export function callAI(system: string, user: string, maxTokens: number): Promise<string> {
   return getProvider() === 'claude' ? callClaude(system, user, maxTokens) : callGemini(system, user, maxTokens);
+}
+
+/** 녹음한 소리와 함께 Gemini에게 물어봄 (소리 입력은 Gemini만 가능 - 제공자 설정과 상관없이 Gemini 키를 사용) */
+export function callGeminiWithAudio(system: string, user: string, audio: AudioInput, maxTokens: number): Promise<string> {
+  return callGemini(system, user, maxTokens, audio);
 }
 
 const PING = 'Reply with the JSON object {"ok":true} and nothing else.';
