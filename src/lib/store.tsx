@@ -6,7 +6,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
-import type { AppData, DocAnalysisCache, DocContent, LibraryDoc, SyncState, ViewPrefs, VocabItem } from './types';
+import type { AppData, DocAnalysisCache, DocContent, GrammarItem, LibraryDoc, SyncState, ViewPrefs, VocabItem } from './types';
 import { readAppJson, writeAppJson, deleteAppFile, getDriveUser, DriveError } from './drive';
 import { AuthRequiredError, connectGoogle, disconnectGoogle, hasValidToken, isConnectedBefore } from './google';
 import { nowIso, errorMessage } from './util';
@@ -24,7 +24,7 @@ export const DEFAULT_PREFS: ViewPrefs = {
 };
 
 function emptyData(): AppData {
-  return { version: 1, library: {}, vocab: {}, prefs: { ...DEFAULT_PREFS } };
+  return { version: 1, library: {}, vocab: {}, grammar: {}, prefs: { ...DEFAULT_PREFS } };
 }
 
 function newer<T extends { updatedAt: string }>(a: T | undefined, b: T | undefined): T | undefined {
@@ -48,6 +48,7 @@ export function mergeData(local: AppData, remote: AppData | null): AppData {
     version: 1,
     library: mergeRecords(local.library, remote.library ?? {}),
     vocab: mergeRecords(local.vocab, remote.vocab ?? {}),
+    grammar: mergeRecords(local.grammar ?? {}, remote.grammar ?? {}),
     prefs: newer(local.prefs, { ...DEFAULT_PREFS, ...(remote.prefs ?? {}) }) ?? local.prefs,
   };
 }
@@ -82,7 +83,12 @@ export async function loadAnalysis(id: string): Promise<DocAnalysisCache> {
   try {
     const remote = await readAppJson<DocAnalysisCache>(`ana-${id}.json`);
     if (!remote) return local;
-    const merged: DocAnalysisCache = { id, sentences: { ...remote.sentences, ...local.sentences }, words: { ...remote.words, ...local.words } };
+    const merged: DocAnalysisCache = {
+      id,
+      sentences: { ...remote.sentences, ...local.sentences },
+      words: { ...remote.words, ...local.words },
+      grammar: { ...(remote.grammar ?? {}), ...(local.grammar ?? {}) },
+    };
     await idbSet(`ana:${id}`, merged);
     return merged;
   } catch {
@@ -131,6 +137,8 @@ interface StoreValue {
   removeDoc: (id: string) => void;
   upsertVocab: (item: VocabItem) => void;
   removeVocab: (id: string) => void;
+  upsertGrammar: (item: GrammarItem) => void;
+  removeGrammar: (id: string) => void;
   setPrefs: (patch: Partial<Omit<ViewPrefs, 'updatedAt'>>) => void;
 }
 
@@ -290,6 +298,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (!cur) return d;
           return { ...d, vocab: { ...d.vocab, [id]: { ...cur, deleted: true, updatedAt: nowIso() } } };
         }),
+      upsertGrammar: (item) => update((d) => ({ ...d, grammar: { ...(d.grammar ?? {}), [item.id]: { ...item, deleted: false, updatedAt: nowIso() } } })),
+      removeGrammar: (id) =>
+        update((d) => {
+          const cur = d.grammar?.[id];
+          if (!cur) return d;
+          return { ...d, grammar: { ...d.grammar, [id]: { ...cur, deleted: true, updatedAt: nowIso() } } };
+        }),
       setPrefs: (patch) => update((d) => ({ ...d, prefs: { ...d.prefs, ...patch, updatedAt: nowIso() } })),
     }),
     [data, ready, sync, syncError, lastSynced, userEmail, connect, disconnect, syncNow, update]
@@ -314,4 +329,8 @@ export function activeDocs(data: AppData): LibraryDoc[] {
 
 export function activeVocab(data: AppData): VocabItem[] {
   return Object.values(data.vocab).filter((v) => !v.deleted);
+}
+
+export function activeGrammar(data: AppData): GrammarItem[] {
+  return Object.values(data.grammar ?? {}).filter((g) => !g.deleted);
 }

@@ -47,11 +47,57 @@ export interface WordInfo {
   contextNote: string;
 }
 
+/** 문장 안에서 찾은 문법 항목 하나 */
+export interface GrammarPoint {
+  nameEn: string; // 예) "passive voice"
+  name: string; // 예) "수동태"
+  part: string; // 문장 속에서 그 문법이 쓰인 부분 (원문 그대로)
+  explanation: string;
+  usage: string; // 의학·학술 글에서 어떻게 쓰이는지
+}
+
+/** 문장 하나의 문법 분석 결과 */
+export interface GrammarAnalysis {
+  structure: string; // 문장 구조 한 줄 요약
+  points: GrammarPoint[];
+}
+
 /** 문서별 AI 결과 캐시 (같은 문장·단어를 다시 묻지 않도록) */
 export interface DocAnalysisCache {
   id: string;
   sentences: Record<string, SentenceAnalysis>; // key: "page-index"
   words: Record<string, WordInfo>; // key: lemma 소문자
+  grammar?: Record<string, GrammarAnalysis>; // key: "page-index"
+}
+
+export interface GrammarExample {
+  docId: string;
+  docTitle: string;
+  page: number;
+  sentence: string;
+  part: string;
+}
+
+export interface GrammarQuiz {
+  q: string; // 빈칸(____)이 있는 문장
+  choices: string[];
+  answer: number; // choices 안의 번호(0부터)
+  explain: string;
+}
+
+/** 문법 노트에 저장한 문법 항목 */
+export interface GrammarItem {
+  id: string; // nameEn을 소문자·하이픈으로 바꾼 값
+  name: string;
+  nameEn: string;
+  explanation: string;
+  usage: string;
+  examples: GrammarExample[];
+  quiz: GrammarQuiz[];
+  status: 'learning' | 'known';
+  createdAt: string;
+  updatedAt: string;
+  deleted?: boolean;
 }
 
 /** 간격 반복(FSRS) 카드 상태 - 날짜는 ISO 문자열로 저장 */
@@ -103,6 +149,7 @@ export interface AppData {
   version: 1;
   library: Record<string, LibraryDoc>;
   vocab: Record<string, VocabItem>;
+  grammar: Record<string, GrammarItem>;
   prefs: ViewPrefs;
 }
 

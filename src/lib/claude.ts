@@ -7,7 +7,7 @@ import { AIError, callAI, getProvider } from './ai';
 import type { DocKind, SentenceAnalysis, WordInfo } from './types';
 import { tokenize } from './util';
 
-function extractJson<T>(text: string): T {
+export function extractJson<T>(text: string): T {
   const start = text.search(/[[{]/);
   const endObj = text.lastIndexOf('}');
   const endArr = text.lastIndexOf(']');
@@ -20,7 +20,7 @@ function extractJson<T>(text: string): T {
   }
 }
 
-const KIND_LABEL: Record<DocKind, string> = {
+export const KIND_LABEL: Record<DocKind, string> = {
   paper: 'a medical/rehabilitation research paper',
   book: 'a professional medical textbook',
   lecture: 'a conference lecture transcript',

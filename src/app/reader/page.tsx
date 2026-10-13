@@ -7,10 +7,11 @@ import { activeVocab, loadAnalysis, loadDocContent, removeDocFiles, saveAnalysis
 import { analyzeSentences } from '@/lib/claude';
 import { driveViewUrl } from '@/lib/drive';
 import { speak, stopSpeaking, canSpeak } from '@/lib/speech';
-import type { DocAnalysisCache, DocContent, WordInfo } from '@/lib/types';
+import type { DocAnalysisCache, DocContent, GrammarAnalysis, WordInfo } from '@/lib/types';
 import { cleanWord, errorMessage, tokenize } from '@/lib/util';
 import { AaMenu } from '@/components/AaMenu';
 import { Hangul } from '@/components/Hangul';
+import { GrammarSheet, type GrammarTarget } from '@/components/GrammarSheet';
 import { Icon } from '@/components/Icon';
 import { SyncBanner } from '@/components/SyncBanner';
 import { WordSheet, type WordTarget } from '@/components/WordSheet';
@@ -36,6 +37,7 @@ function ReaderInner() {
   const [errKeys, setErrKeys] = useState<Record<string, string>>({});
   const inflight = useRef<Set<string>>(new Set());
   const [target, setTarget] = useState<WordTarget | null>(null);
+  const [gTarget, setGTarget] = useState<GrammarTarget | null>(null);
   const [speed, setSpeed] = useState(1);
   const [playing, setPlaying] = useState(false);
   const initDone = useRef(false);
@@ -209,6 +211,16 @@ function ReaderInner() {
     [commitCache]
   );
 
+  const grammarCached = useCallback((t: GrammarTarget): GrammarAnalysis | undefined => cacheRef.current?.grammar?.[keyOf(t.page, sentences.indexOf(t.sentence))], [sentences]);
+  const onGrammarCache = useCallback(
+    (t: GrammarTarget, a: GrammarAnalysis) => {
+      const base = cacheRef.current;
+      if (!base) return;
+      commitCache({ ...base, grammar: { ...(base.grammar ?? {}), [keyOf(t.page, sentences.indexOf(t.sentence))]: a } });
+    },
+    [commitCache, sentences]
+  );
+
   if (!id || (ready && !doc)) {
     return (
       <main className="page no-tabs">
@@ -339,7 +351,9 @@ function ReaderInner() {
                 <b style={{ fontSize: 13, color: 'var(--teal)' }}>지금 문장</b>
                 <span style={{ fontFamily: 'var(--font-read)', fontSize: 16, lineHeight: 1.5 }}>{sentences[cur] ?? ''}</span>
                 {cache?.sentences[keyOf(page, cur)]?.translation && <div className="tr" style={{ marginTop: 0 }}>{cache.sentences[keyOf(page, cur)].translation}</div>}
-                <div className="small">문장 구조·문법 분석과 발음 연습은 2단계에서 추가돼요.</div>
+                <button className="btn sm primary" disabled={!sentences[cur]} onClick={() => sentences[cur] && setGTarget({ sentence: sentences[cur], page })}>
+                  <Icon name="grammar" size={16} /> 이 문장 문법 분석
+                </button>
               </div>
               <div className="card stack">
                 <b style={{ fontSize: 13 }}>자료 관리</b>
@@ -374,6 +388,9 @@ function ReaderInner() {
                 </button>
               ))}
             </div>
+            <button className="btn sm" disabled={!sentences[cur]} onClick={() => sentences[cur] && setGTarget({ sentence: sentences[cur], page })}>
+              <Icon name="grammar" size={16} /> 문법
+            </button>
             <span className="small">
               문장 {Math.min(cur + 1, sentences.length)} / {sentences.length}
             </span>
@@ -381,6 +398,7 @@ function ReaderInner() {
         </div>
       )}
 
+      <GrammarSheet target={gTarget} docId={doc.id} docTitle={doc.title} kind={doc.kind} cached={grammarCached} onCache={onGrammarCache} onClose={() => setGTarget(null)} />
       <WordSheet target={target} docId={doc.id} docTitle={doc.title} kind={doc.kind} cached={wordCached} onCache={onWordCache} onClose={() => setTarget(null)} />
     </>
   );
