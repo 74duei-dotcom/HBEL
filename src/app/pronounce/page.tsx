@@ -95,7 +95,7 @@ function Practice({ sentence, onBack }: { sentence: string; onBack: () => void }
         </div>
       </div>
 
-      {!hasKey && <div className="banner warn">발음 평가는 Gemini 키가 필요해요. 설정의 AI 연결에서 Gemini 키를 넣어 주세요. (Claude만 쓰는 경우에도 평가용으로 따로 넣을 수 있어요)</div>}
+      {!hasKey && <div className="banner warn">발음 평가는 Gemini 키가 필요해요. 설정의 AI 연결에서 Gemini 키를 넣어 주세요.</div>}
       {!canRecord() && <div className="banner err">이 브라우저에서는 녹음을 쓸 수 없어요.</div>}
       {err && <div className="banner err">{err}</div>}
 

@@ -1,9 +1,9 @@
 'use client';
-// E1 첫 실행 안내: AI 연결(Claude 또는 Gemini) → 구글 연결 → 앱 설치 → 발음 평가 키(2단계)
+// E1 첫 실행 안내: AI 연결(Gemini) → 구글 연결 → 앱 설치 → 발음 평가 키(2단계)
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { getAIKey, getProvider } from '@/lib/ai';
+import { getAIKey } from '@/lib/ai';
 import { AIConnect } from '@/components/AIConnect';
 import { useStore } from '@/lib/store';
 import { hasValidToken } from '@/lib/google';
@@ -24,7 +24,7 @@ export default function SetupPage() {
   const [installed, setInstalled] = useState(false);
 
   useEffect(() => {
-    const k = getAIKey(getProvider());
+    const k = getAIKey();
     const s: StepState[] = ['todo', 'todo', 'todo', 'todo'];
     if (k) s[0] = 'done';
     if (hasValidToken()) s[1] = 'done';
@@ -73,7 +73,7 @@ export default function SetupPage() {
   const allDone = states[0] === 'done' && states[1] === 'done';
 
   const steps = [
-    { title: 'AI 연결 (Claude 또는 Gemini)', help: '번역 · 한글 발음 · 용어 사전 · 문법 · AI 대화' },
+    { title: 'AI 연결 (Gemini)', help: '번역 · 한글 발음 · 용어 사전 · 문법 · AI 대화' },
     { title: '구글 계정으로 연결', help: '드라이브 ‘영어서재’ 폴더에 자료·기록 저장 · PC와 휴대폰 함께 쓰기' },
     { title: '앱 설치', help: '홈 화면·바탕화면 아이콘으로 바로 열기 · 오프라인 읽기' },
     { title: '발음 평가 키 (선택)', help: '발음 점수가 필요할 때만 · 2단계에서 설정해요' },

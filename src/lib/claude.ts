@@ -1,5 +1,5 @@
 'use client';
-// 단어 사전·문장 분석 (AI 제공자는 설정에서 고른 Claude 또는 Gemini - 호출은 ai.ts)
+// 단어 사전·문장 분석 (AI는 Gemini - 호출은 ai.ts)
 // - 단어 사전: 뜻·품사·발음기호·한글 발음(강세)·의학용어 여부·어원
 // - 문장 분석: 번역 + 단어별 한글 발음(연음 반영)
 
@@ -31,28 +31,51 @@ const HANGUL_RULES = `Korean pronunciation guide ("hangul") rules:
 - Wrap ONLY the primary-stressed syllable in asterisks, e.g. "익스*텐*션", "스판덜로리스*씨*시스", "*럼*바".
 - Use common Korean loanword-style spelling, but follow real pronunciation (flap t, schwa) rather than spelling.`;
 
+/** 음절 목록에서 강세(*) 표시가 있는 한글 발음을 만듦 */
+function joinHangul(syl: { ko: string; stress: boolean }[]): string {
+  return syl.map((x) => (x.stress ? `*${x.ko}*` : x.ko)).join('');
+}
+
 /** 단어 뜻 찾기 (문장 문맥 반영) */
-export async function lookupWord(word: string, sentence: string, kind: DocKind): Promise<WordInfo> {
+const lookupInflight = new Map<string, Promise<WordInfo>>();
+
+/** 같은 단어를 동시에 두 번 묻지 않게 함 (개발 모드 이중 실행·연타 대비) */
+export function lookupWord(word: string, sentence: string, kind: DocKind): Promise<WordInfo> {
+  const key = `${word.toLowerCase()}|${sentence}`;
+  const hit = lookupInflight.get(key);
+  if (hit) return hit;
+  const p = lookupWordNow(word, sentence, kind).finally(() => lookupInflight.delete(key));
+  lookupInflight.set(key, p);
+  return p;
+}
+
+async function lookupWordNow(word: string, sentence: string, kind: DocKind): Promise<WordInfo> {
   const system = `You are an English-Korean dictionary for a Korean rehabilitation-exercise center director who reads ${KIND_LABEL[kind]}.
-Return ONLY a JSON object, no prose, with these keys:
+Be fast and concise. Return ONLY a JSON object, no prose, with these keys:
 {"word": string (as it appears), "lemma": string (dictionary form, lowercase unless proper noun),
  "pos": string (Korean part of speech, e.g. "명사","동사","형용사","부사","구동사"),
- "ipa": string (American IPA with slashes),
- "hangul": string (Korean pronunciation guide),
+ "ipa": string (American IPA with slashes AND stress marks ˈ (primary) ˌ (secondary), e.g. "/ɪkˈsprɛs/"),
+ "syllables": [{"en": string (spelling chunk), "ko": string (Hangul sound of this syllable), "stress": boolean (true for the primary-stressed syllable), "why": string (very short Korean reason, <=25 chars, why it is read this way, e.g. "x는 'ks' 소리라 '익스'")}] (spelling chunks joined must equal the word),
  "meaning": string (concise Korean meaning that fits THIS sentence; for medical terms give the standard Korean medical term, e.g. "척추전방전위증"),
  "isMedical": boolean (true if a medical/anatomical/clinical term),
- "etymology": string (Korean, short morpheme breakdown for medical terms like "spondylo 척추 + olisthesis 미끄러짐", else ""),
+ "etymology": string (Korean, ONE short line on the word's origin for EVERY word: source language + original word + its meaning, e.g. "라틴어 ex(밖으로) + premere(누르다) → 짜내다 → 표현하다"; for medical terms break into morphemes like "spondylo 척추 + olisthesis 미끄러짐"),
  "contextNote": string (one short Korean sentence explaining the meaning in this context)}
 ${HANGUL_RULES}`;
   const user = `Word: ${word}\nSentence: ${sentence}`;
-  const text = await callAI(system, user, 600);
+  const text = await callAI(system, user, 600, { timeoutMs: 25000, priority: 'user' });
   const j = extractJson<Partial<WordInfo>>(text);
+  const syllables = Array.isArray(j.syllables)
+    ? j.syllables
+        .map((s) => ({ en: String(s?.en ?? ''), ko: String(s?.ko ?? ''), stress: Boolean(s?.stress), why: String(s?.why ?? '') }))
+        .filter((s) => s.en || s.ko)
+    : [];
   return {
+    syllables,
     word: String(j.word ?? word),
     lemma: String(j.lemma ?? word).trim() || word.toLowerCase(),
     pos: String(j.pos ?? ''),
     ipa: String(j.ipa ?? ''),
-    hangul: String(j.hangul ?? ''),
+    hangul: String(j.hangul ?? '') || joinHangul(syllables),
     meaning: String(j.meaning ?? ''),
     isMedical: Boolean(j.isMedical),
     etymology: String(j.etymology ?? ''),
@@ -78,7 +101,7 @@ Return ONLY a JSON array: [{"i": number, "translation": string, "hk": string[]}]
   e.g. tokens ["a","common","cause","of"] -> ["어","*카*먼","*커*","저브"]; ["look","at"] -> ["*루*","캣"]. Never include punctuation in hk.
 ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLines}` : ''}`;
   const user = JSON.stringify(items);
-  const text = await callAI(system, user, Math.min(4000, 300 + sentences.join(' ').length * 3));
+  const text = await callAI(system, user, Math.min(4000, 300 + sentences.join(' ').length * 3), { timeoutMs: 60000, priority: 'bg' });
   const arr = extractJson<{ i: number; translation: string; hk: string[] }[]>(text);
   return items.map((it) => {
     const found = Array.isArray(arr) ? arr.find((a) => a.i === it.i) : undefined;

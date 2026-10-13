@@ -7,7 +7,6 @@ export const GOOGLE_PROJECT_NUMBER = process.env.NEXT_PUBLIC_GOOGLE_PROJECT_NUMB
 export const BASE_PATH = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/$/, '');
 export const withBase = (p: string) => `${BASE_PATH}${p}`;
 
-export const CLAUDE_MODEL = process.env.NEXT_PUBLIC_CLAUDE_MODEL || 'claude-haiku-5-5';
 export const GEMINI_MODEL = process.env.NEXT_PUBLIC_GEMINI_MODEL || 'gemini-3.5-flash-lite';
 export const GEMINI_TTS_MODEL = process.env.NEXT_PUBLIC_GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts';
 
@@ -21,10 +20,8 @@ export const GOOGLE_SCOPES = [
 export const DRIVE_FOLDER_NAME = '영어서재';
 
 export const LS_KEYS = {
-  claudeKey: 'el.claudeKey',
   geminiKey: 'el.geminiKey', // 예전 단일 키 (geminiKeys로 옮겨짐)
   geminiKeys: 'el.geminiKeys',
-  aiProvider: 'el.aiProvider',
   ttsEngine: 'el.ttsEngine', // 'gemini' | 'device' (기본: Gemini 키가 있으면 gemini)
   googleToken: 'el.googleToken',
   googleConnected: 'el.googleConnected',

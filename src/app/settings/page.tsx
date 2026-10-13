@@ -163,7 +163,7 @@ export default function SettingsPage() {
 
         <section className="stack" style={{ gap: 6 }}>
           <h2 className="small" style={{ margin: 0, fontWeight: 700 }}>
-            AI 연결 · Claude 또는 Gemini · 키는 이 기기에만 저장
+            AI 연결 · Gemini · 키는 이 기기에만 저장
           </h2>
           <div className="card">
             <AIConnect />

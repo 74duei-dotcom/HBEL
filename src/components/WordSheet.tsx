@@ -1,7 +1,7 @@
 'use client';
 // 단어를 누르면 아래에서 올라오는 사전 창
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { lookupWord } from '@/lib/claude';
 import { newCard } from '@/lib/srs';
@@ -9,6 +9,7 @@ import { speak } from '@/lib/speech';
 import type { DocKind, VocabItem, WordInfo, WordSource } from '@/lib/types';
 import { cleanWord, errorMessage, nowIso } from '@/lib/util';
 import { Hangul } from './Hangul';
+import { SyllableGuide } from './SyllableGuide';
 import { Icon } from './Icon';
 
 export interface WordTarget {
@@ -33,13 +34,17 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState<'' | 'learning' | 'known'>('');
+  const vocabRef = useRef(data.vocab);
+  vocabRef.current = data.vocab;
 
   const load = useCallback(async () => {
     if (!target) return;
     const key = cleanWord(target.word).toLowerCase();
     setErr('');
     setSaved('');
-    const hit = cached(key);
+    // 문서 캐시 → 내 단어장(음절 설명까지 있는 것) 순으로 찾아 AI를 부르지 않음
+    const mine = vocabRef.current[key];
+    const hit = cached(key) ?? (mine && !mine.deleted && mine.syllables?.length ? mine : undefined);
     if (hit) {
       setInfo(hit);
       return;
@@ -106,9 +111,8 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
               {info && (
                 <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
                   {info.isMedical && <span className="chip med">의학용어</span>}
-                  <span className="small">
-                    {info.ipa} {info.pos && `· ${info.pos}`}
-                  </span>
+                  {info.ipa && <span className="ipa" aria-label="발음기호">{info.ipa}</span>}
+                  {info.pos && <span className="small">{info.pos}</span>}
                 </span>
               )}
               {info && data.prefs.hk && info.hangul && (
@@ -148,7 +152,13 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
           {info && (
             <>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{info.meaning}</div>
-              {info.etymology && <span className="root-chip">{info.etymology}</span>}
+              <SyllableGuide syllables={info.syllables} />
+              {info.etymology && (
+                <div className="origin-box">
+                  <b>어원</b>
+                  {info.etymology}
+                </div>
+              )}
               {info.contextNote && <div className="muted" style={{ fontSize: 14 }}>{info.contextNote}</div>}
               <div className="row" style={{ gap: 10 }}>
                 <button className="btn grow" aria-pressed={saved === 'known' || current?.status === 'known'} onClick={() => save('known')}>

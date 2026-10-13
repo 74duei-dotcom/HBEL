@@ -176,8 +176,11 @@ function ReaderInner() {
         const k = keyOf(page, i);
         return !cacheRef.current!.sentences[k] && !inflight.current.has(k) && sentences[i];
       });
-      for (let s = 0; s < todo.length; s += CHUNK) {
-        const part = todo.slice(s, s + CHUNK);
+      const parts: number[][] = [];
+      for (let s = 0; s < todo.length; s += CHUNK) parts.push(todo.slice(s, s + CHUNK));
+      // 묶음들을 한꺼번에 요청 (실제 동시 전송 수는 ai.ts가 2개로 조절)
+      await Promise.all(
+        parts.map(async (part) => {
         const keys = part.map((i) => keyOf(page, i));
         keys.forEach((k) => inflight.current.add(k));
         setBusyKeys((prev) => new Set([...prev, ...keys]));
@@ -211,7 +214,8 @@ function ReaderInner() {
             return n;
           });
         }
-      }
+        })
+      );
     },
     [doc, page, sentences, glossary, commitCache]
   );

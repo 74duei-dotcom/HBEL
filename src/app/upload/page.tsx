@@ -99,11 +99,11 @@ export default function UploadPage() {
         createdAt: now,
         updatedAt: now,
       };
-      upsertDoc(doc);
+      // 본문 저장이 끝난 뒤에 목록에 올림 (중간에 실패해도 '처리 중' 빈 자료가 남지 않게)
       patch(job.key, { stage: 'saving', progress: 1 });
-      await saveDocContent({ id, pages: res.pages });
+      const synced = await saveDocContent({ id, pages: res.pages });
       upsertDoc({ ...doc, status: 'ready' });
-      patch(job.key, { stage: 'done', docId: id, warn: 'AI가 들은 대로 받아 적은 자막이라 틀린 곳이 있을 수 있어요.' });
+      patch(job.key, { stage: 'done', docId: id, warn: 'AI가 들은 대로 받아 적은 자막이라 틀린 곳이 있을 수 있어요.' + (synced || !hasValidToken() ? '' : ' 드라이브에는 저장하지 못해 이 기기에만 저장했어요.') });
     } catch (e) {
       patch(job.key, { stage: 'error', message: errorMessage(e) });
     }
@@ -141,10 +141,9 @@ export default function UploadPage() {
         createdAt: now,
         updatedAt: now,
       };
-      upsertDoc(doc);
       patch(job.key, { stage: 'saving', progress: 1 });
-      await saveDocContent({ id, pages: res.pages });
-      let warn = 'AI가 들은 대로 받아 적은 자막이라 틀린 곳이 있을 수 있어요.';
+      const synced = await saveDocContent({ id, pages: res.pages });
+      let warn = 'AI가 들은 대로 받아 적은 자막이라 틀린 곳이 있을 수 있어요.' + (synced || !hasValidToken() ? '' : ' 드라이브에는 저장하지 못해 이 기기에만 저장했어요.');
       try {
         await saveVideo(id, file);
       } catch {
@@ -186,8 +185,6 @@ export default function UploadPage() {
         createdAt: now,
         updatedAt: now,
       };
-      upsertDoc(doc);
-
       let warn = res.ocrPages > 0 ? `${res.ocrPages}쪽을 글자 인식으로 읽었어요. 잘못 읽은 글자가 있을 수 있어요.` : res.scanned ? '글자가 적어 스캔본일 수 있어요. 빠진 문장이 있으면 글자 인식을 켜고 다시 올려 주세요.' : '';
       if (job.file && hasValidToken()) {
         patch(job.key, { stage: 'uploading', progress: 0 });
@@ -198,7 +195,8 @@ export default function UploadPage() {
       }
 
       patch(job.key, { stage: 'saving', progress: 1 });
-      await saveDocContent({ id, pages: res.pages });
+      const synced = await saveDocContent({ id, pages: res.pages });
+      if (!synced && hasValidToken()) warn = (warn ? warn + ' ' : '') + '드라이브에는 저장하지 못해 이 기기에만 저장했어요.';
       upsertDoc({ ...doc, status: 'ready' });
       patch(job.key, { stage: 'done', docId: id, warn });
     } catch (e) {

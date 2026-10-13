@@ -38,8 +38,17 @@ export interface SentenceAnalysis {
 }
 
 /** 단어 하나에 대한 사전 결과 */
+/** 단어를 음절로 나눈 것 하나 (철자 조각 + 한글 소리 + 왜 그렇게 읽는지) */
+export interface Syllable {
+  en: string; // 예) "press"
+  ko: string; // 예) "프레스"
+  stress: boolean; // 강세 음절이면 true
+  why: string; // 예) "pr는 '프ㄹ'로 붙여 읽고 e는 짧은 '에'"
+}
+
 export interface WordInfo {
   word: string;
+  syllables?: Syllable[];
   lemma: string;
   pos: string;
   ipa: string;

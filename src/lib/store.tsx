@@ -72,8 +72,13 @@ export async function loadDocContent(id: string): Promise<DocContent | null> {
 export async function saveDocContent(content: DocContent): Promise<boolean> {
   await idbSet(`doc:${content.id}`, content);
   if (!hasValidToken()) return false;
-  await writeAppJson(`doc-${content.id}.json`, content);
-  return true;
+  try {
+    await writeAppJson(`doc-${content.id}.json`, content);
+    return true;
+  } catch {
+    // 기기에는 이미 저장됐으므로 드라이브 실패는 오류로 보지 않음
+    return false;
+  }
 }
 
 export async function loadAnalysis(id: string): Promise<DocAnalysisCache> {
@@ -182,7 +187,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const remote = await readAppJson<AppData>(APPDATA_FILE);
       const merged = mergeData(dataRef.current, remote);
       if (!remote || !sameData(merged, remote)) await writeAppJson(APPDATA_FILE, merged);
-      if (!sameData(merged, dataRef.current)) commit(merged);
+      // 업로드하는 동안 사용자가 고친 내용이 있을 수 있으니, 덮어쓰지 말고 최신 데이터와 한 번 더 합침
+      const latest = mergeData(dataRef.current, merged);
+      if (!sameData(latest, dataRef.current)) commit(latest);
+      if (!sameData(latest, merged)) pending.current = true; // 그 사이 고친 내용은 곧 다시 동기화
       setSync('idle');
       setSyncError('');
       setLastSynced(nowIso());

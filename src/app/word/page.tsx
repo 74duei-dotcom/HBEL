@@ -8,6 +8,7 @@ import { speak } from '@/lib/speech';
 import { newCard } from '@/lib/srs';
 import { relativeDue } from '@/lib/util';
 import { Hangul } from '@/components/Hangul';
+import { SyllableGuide } from '@/components/SyllableGuide';
 import { Icon } from '@/components/Icon';
 
 function WordInner() {
@@ -60,9 +61,8 @@ function WordInner() {
               <span style={{ fontFamily: 'var(--font-read)', fontSize: 26, fontWeight: 600, overflowWrap: 'anywhere' }}>{v.lemma}</span>
               <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
                 {v.isMedical && <span className="chip med">의학용어</span>}
-                <span className="small">
-                  {v.ipa} {v.pos && `· ${v.pos}`}
-                </span>
+                {v.ipa && <span className="ipa" aria-label="발음기호">{v.ipa}</span>}
+                {v.pos && <span className="small">{v.pos}</span>}
               </span>
               {v.hangul && (
                 <span className="hk-badge">
@@ -76,7 +76,13 @@ function WordInner() {
             </button>
           </div>
           <div style={{ fontSize: 19, fontWeight: 700 }}>{v.meaning}</div>
-          {v.etymology && <span className="root-chip">{v.etymology}</span>}
+          <SyllableGuide syllables={v.syllables} />
+          {v.etymology && (
+            <div className="origin-box">
+              <b>어원</b>
+              {v.etymology}
+            </div>
+          )}
           {v.contextNote && <span className="muted" style={{ fontSize: 14 }}>{v.contextNote}</span>}
         </div>
 
