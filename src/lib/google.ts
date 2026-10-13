@@ -73,10 +73,29 @@ function readStored(): StoredToken | null {
   }
 }
 
+type AuthListener = () => void;
+const authListeners = new Set<AuthListener>();
+
+export function onAuthExpired(cb: AuthListener): () => void {
+  authListeners.add(cb);
+  return () => authListeners.delete(cb);
+}
+
+function notifyAuthExpired(): void {
+  authListeners.forEach((cb) => {
+    try {
+      cb();
+    } catch {
+      /* 무시 */
+    }
+  });
+}
+
 /** 유효한 토큰이 있으면 돌려주고, 없으면 AuthRequiredError */
 export function getToken(): string {
   const t = readStored();
   if (t && t.expires_at - 60_000 > Date.now()) return t.access_token;
+  invalidateToken();
   throw new AuthRequiredError(isConnectedBefore() ? '구글 연결 시간이 끝났어요. "다시 연결"을 눌러 주세요.' : undefined);
 }
 
@@ -95,9 +114,9 @@ export function isConnectedBefore(): boolean {
 
 /**
  * 구글 연결 창을 띄워 토큰을 받습니다. 반드시 버튼 클릭 같은 사용자 동작 안에서 불러야 합니다(팝업 차단 방지).
- * 이미 한 번 동의했다면 창이 잠깐 떴다가 바로 닫힙니다.
+ * hint(이메일)를 넘기면 계정 선택 과정 없이 바로 그 계정으로 연결합니다.
  */
-export async function connectGoogle(): Promise<string> {
+export async function connectGoogle(hint?: string): Promise<string> {
   if (!isGoogleConfigured()) {
     throw new Error('구글 클라이언트 ID가 설정되지 않았어요. .env.local 파일을 확인해 주세요.');
   }
@@ -107,6 +126,7 @@ export async function connectGoogle(): Promise<string> {
       client_id: GOOGLE_CLIENT_ID,
       scope: GOOGLE_SCOPES,
       prompt: isConnectedBefore() ? '' : 'consent',
+      hint: hint || undefined,
       callback: (resp: any) => {
         if (resp?.error) {
           reject(new Error(resp.error === 'access_denied' ? '구글 연결을 취소했어요.' : `구글 연결 실패: ${resp.error}`));
@@ -149,8 +169,10 @@ export async function disconnectGoogle(): Promise<void> {
   }
 }
 
-/** API 응답이 401일 때 토큰을 무효 처리 */
+/** API 응답이 401이거나 토큰 만료 시 무효 처리 */
 export function invalidateToken(): void {
+  const wasValid = memToken !== null || lsGet(LS_KEYS.googleToken) !== null;
   memToken = null;
   lsSet(LS_KEYS.googleToken, null);
+  if (wasValid) notifyAuthExpired();
 }

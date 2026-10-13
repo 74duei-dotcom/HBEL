@@ -8,7 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import type { AppData, DocAnalysisCache, DocContent, GrammarItem, LibraryDoc, SyncState, ViewPrefs, VocabItem } from './types';
 import { readAppJson, writeAppJson, deleteAppFile, getDriveUser, DriveError } from './drive';
-import { AuthRequiredError, connectGoogle, disconnectGoogle, hasValidToken, isConnectedBefore } from './google';
+import { AuthRequiredError, connectGoogle, disconnectGoogle, hasValidToken, isConnectedBefore, onAuthExpired, invalidateToken } from './google';
 import { nowIso, errorMessage } from './util';
 
 const APPDATA_FILE = 'appdata.json';
@@ -104,7 +104,13 @@ export async function loadAnalysis(id: string): Promise<DocAnalysisCache> {
 const analysisTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; cache: DocAnalysisCache }>();
 
 function uploadAnalysis(cache: DocAnalysisCache): void {
-  if (hasValidToken()) writeAppJson(`ana-${cache.id}.json`, cache).catch(() => undefined);
+  if (hasValidToken()) {
+    writeAppJson(`ana-${cache.id}.json`, cache).catch((e) => {
+      if (e instanceof AuthRequiredError) invalidateToken();
+    });
+  } else if (isConnectedBefore()) {
+    invalidateToken();
+  }
 }
 
 /** 분석 결과는 자주 바뀌므로 기기에 바로 저장하고, 드라이브에는 몇 초 모았다가 올림 */
@@ -273,7 +279,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     window.addEventListener('offline', onOffline);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('pagehide', flushAnalysisUploads);
+    const unsubAuth = onAuthExpired(() => {
+      if (alive) setSync('auth-expired');
+    });
     return () => {
+      unsubAuth();
       window.removeEventListener('pagehide', flushAnalysisUploads);
       alive = false;
       window.removeEventListener('online', onOnline);
@@ -288,7 +298,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [data.prefs.fontSize]);
 
   const connect = useCallback(async () => {
-    await connectGoogle();
+    await connectGoogle(userEmail);
     try {
       const u = await getDriveUser();
       setUserEmail(u.email);
@@ -296,7 +306,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       /* 무시 */
     }
     await syncNow();
-  }, [syncNow]);
+  }, [syncNow, userEmail]);
 
   const disconnect = useCallback(async () => {
     await disconnectGoogle();

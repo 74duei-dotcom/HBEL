@@ -79,6 +79,8 @@ let current: HTMLAudioElement | null = null;
 let ticket = 0;
 /** 이번 접속에서 Gemini 음성이 계속 실패하면(한도·모델 문제 등) 더 시도하지 않고 기기 음성 사용 */
 let geminiFailures = 0;
+let lastGeminiFailureAt = 0;
+const FAILURE_COOLDOWN_MS = 25_000; // 25초 후에는 일시 실패 카운트를 리셋하여 다시 시도
 const memory = new Map<string, Blob>();
 
 /** 마지막 Gemini 음성 오류 (설정 화면에서 보여줌) */
@@ -131,6 +133,25 @@ async function requestGeminiAudio(text: string): Promise<Blob> {
       });
     } catch {
       throw new Error('인터넷 연결을 확인해 주세요.');
+    }
+    if (res.status === 429) {
+      // 분당 한도에 일시적으로 걸린 경우 1.5초 대기 후 한 번 재시도
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TTS_MODEL}:generateContent`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text }] }],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
+            },
+          }),
+        });
+      } catch {
+        /* 실패 시 다음 키로 */
+      }
     }
     if (res.status === 429 || res.status === 403) {
       lastErr = res.status === 429 ? 'Gemini 무료 한도에 도달했어요.' : 'Gemini 키가 올바르지 않아요.';
@@ -203,6 +224,11 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
   stopCurrent();
   if (canDeviceSpeak()) window.speechSynthesis.cancel();
 
+  // 쿨다운(25초)이 지났으면 이전 실패 카운트를 리셋하여 Gemini 음성을 다시 시도
+  if (geminiFailures >= 2 && Date.now() - lastGeminiFailureAt > FAILURE_COOLDOWN_MS) {
+    geminiFailures = 0;
+  }
+
   if (getTtsEngine() !== 'gemini' || !getGeminiKeys().length || geminiFailures >= 2) {
     deviceSpeak(t, rate, mine, onEnd);
     return;
@@ -230,6 +256,7 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
     } catch (e) {
       if (mine !== ticket) return;
       geminiFailures++;
+      lastGeminiFailureAt = Date.now();
       lastTtsError = e instanceof Error ? e.message : String(e);
       deviceSpeak(t, rate, mine, onEnd);
     }

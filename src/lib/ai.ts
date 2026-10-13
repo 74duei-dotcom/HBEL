@@ -88,7 +88,7 @@ export interface VideoUrlInput {
 type MediaInput = AudioInput | VideoUrlInput;
 
 function mediaPart(m: MediaInput) {
-  if ('fileUri' in m) return { fileData: { fileUri: m.fileUri }, videoMetadata: { startOffset: `${m.startSec}s`, endOffset: `${m.endSec}s` } };
+  if ('fileUri' in m) return { fileData: { fileUri: m.fileUri, mimeType: 'video/mp4' }, videoMetadata: { startOffset: `${m.startSec}s`, endOffset: `${m.endSec}s` } };
   return { inlineData: { mimeType: m.mimeType, data: m.base64 } };
 }
 
@@ -104,15 +104,25 @@ const THINK_MODES: (Record<string, unknown> | null)[] = [{ thinkingLevel: 'minim
 let thinkMode = 0;
 
 const BG_SLOTS = 2;
+const BG_MIN_INTERVAL_MS = 600; // 요청 간 최소 간격 (초당 요청 폭주 방지)
 let bgActive = 0;
+let lastBgRequestTime = 0;
 const bgWaiters: (() => void)[] = [];
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function acquireBg(): Promise<void> {
   if (bgActive < BG_SLOTS) {
     bgActive++;
-    return;
+  } else {
+    await new Promise<void>((resolve) => bgWaiters.push(resolve));
   }
-  await new Promise<void>((resolve) => bgWaiters.push(resolve));
+  const now = Date.now();
+  const diff = now - lastBgRequestTime;
+  if (diff < BG_MIN_INTERVAL_MS) {
+    await sleep(BG_MIN_INTERVAL_MS - diff);
+  }
+  lastBgRequestTime = Date.now();
 }
 
 function releaseBg(): void {
@@ -120,8 +130,6 @@ function releaseBg(): void {
   if (next) next(); // 자리를 그대로 다음 대기자에게 넘김
   else bgActive--;
 }
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** 400 응답이 '생각(thinking) 옵션' 때문인지 확인 (본문은 복사본으로 읽어 원본은 그대로 둠) */
 async function mentionsThinking(res: Response): Promise<boolean> {
@@ -165,10 +173,14 @@ async function geminiRequest(key: string, system: string, user: string, maxToken
       thinkMode++;
       res = await send(thinkMode);
     }
-    // 서버가 잠깐 바쁜 경우(503 등) 한 번만 바로 다시 시도
+    // 서버가 잠깐 바쁜 경우(503, 500 등) 최대 2회 재시도
     if (res.status === 503 || res.status === 500) {
-      await sleep(700);
+      await sleep(1000);
       res = await send(thinkMode);
+      if (res.status === 503 || res.status === 500) {
+        await sleep(2000);
+        res = await send(thinkMode);
+      }
     }
   } catch (e) {
     if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
@@ -231,14 +243,27 @@ async function callGeminiNow(system: string, user: string, maxTokens: number, au
   let lastErr: unknown;
   for (let n = 0; n < keys.length; n++) {
     const i = (geminiStart + n) % keys.length;
-    try {
-      const text = await geminiRequest(keys[i], system, user, maxTokens, audio, opts);
-      geminiStart = i;
-      return text;
-    } catch (e) {
-      lastErr = e;
-      if (e instanceof AIError && (e.kind === 'rate-limit' || e.kind === 'bad-key')) continue;
-      throw e;
+    // 429 한도 초과 시 즉시 실패하지 않고 잠시 대기 후 재시도 (키가 1개일 때 특히 중요)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const text = await geminiRequest(keys[i], system, user, maxTokens, audio, opts);
+        geminiStart = i;
+        return text;
+      } catch (e) {
+        lastErr = e;
+        if (e instanceof AIError && e.kind === 'rate-limit') {
+          // 키가 1개뿐일 때는 잠시 쉬고 재시도 (무료 분당 한도 복구 대기)
+          if (attempt < 2 && keys.length === 1) {
+            await sleep(attempt === 0 ? 2500 : 5000);
+            continue;
+          }
+          break; // 키가 여러 개면 다음 키로
+        }
+        if (e instanceof AIError && e.kind === 'bad-key') {
+          break; // 다음 키로
+        }
+        throw e;
+      }
     }
   }
   if (keys.length > 1 && lastErr instanceof AIError && lastErr.kind === 'rate-limit') {

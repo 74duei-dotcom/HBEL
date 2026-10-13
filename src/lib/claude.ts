@@ -8,15 +8,27 @@ import type { DocKind, SentenceAnalysis, WordInfo } from './types';
 import { tokenize } from './util';
 
 export function extractJson<T>(text: string): T {
-  const start = text.search(/[[{]/);
-  const endObj = text.lastIndexOf('}');
-  const endArr = text.lastIndexOf(']');
+  let cleaned = text.trim();
+  // 마크다운 코드 블록(```json ... ```) 제거
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  }
+  const start = cleaned.search(/[[{]/);
+  const endObj = cleaned.lastIndexOf('}');
+  const endArr = cleaned.lastIndexOf(']');
   const end = Math.max(endObj, endArr);
   if (start < 0 || end < start) throw new AIError('bad-response', getProvider(), 'AI 응답을 읽지 못했어요. 다시 시도해 주세요.');
+  const raw = cleaned.slice(start, end + 1);
   try {
-    return JSON.parse(text.slice(start, end + 1)) as T;
+    return JSON.parse(raw) as T;
   } catch {
-    throw new AIError('bad-response', getProvider(), 'AI 응답 형식이 맞지 않아요. 다시 시도해 주세요.');
+    // 흔한 오류 보정: 후행 쉼표(trailing comma: , } 또는 , ]) 제거 후 다시 시도
+    try {
+      const sanitized = raw.replace(/,\s*([}\]])/g, '$1');
+      return JSON.parse(sanitized) as T;
+    } catch {
+      throw new AIError('bad-response', getProvider(), 'AI 응답 형식이 맞지 않아요. 다시 시도해 주세요.');
+    }
   }
 }
 

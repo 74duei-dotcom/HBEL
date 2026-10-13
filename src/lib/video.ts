@@ -9,7 +9,7 @@ import { splitSentences } from './pdf';
 import type { DocContent } from './types';
 
 const RATE = 16000;
-const CHUNK_SECONDS = 240; // 4분 = 약 7.7MB (한 번에 보낼 수 있는 크기 안)
+const CHUNK_SECONDS = 120; // 2분 = 약 3.8MB (모바일 및 느린 네트워크에서도 안정적으로 전송 가능한 크기)
 const MAX_FILE_MB = 700;
 
 export interface TranscribeProgress {
@@ -292,7 +292,13 @@ export async function transcribeYoutube(id: string, onProgress?: (done: number) 
         lengthKnown = true;
       }
     } catch (e) {
-      if (c === 0) throw e;
+      if (c === 0) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/400|bad-response|not supported|invalid|quota|block/i.test(msg)) {
+          throw new Error('유튜브 영상의 영어 음성을 가져오지 못했어요. 비공개·연령 제한 영상이거나 저작권 제한, 또는 Gemini 유튜브 일일 할당량 제한일 수 있어요.');
+        }
+        throw e;
+      }
       // 영상 길이를 아는데 중간에 실패했다면 진짜 오류 → 앞부분만 받았다고 알림. 길이를 모르면 영상 끝으로 보고 마무리
       if (lengthKnown) partial = `${c + 1}번째 10분 구간부터는 받아 적지 못했어요(${e instanceof Error ? e.message : '오류'}). 앞부분만 저장했어요.`;
       break;

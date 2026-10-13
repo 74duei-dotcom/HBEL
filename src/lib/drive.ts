@@ -72,10 +72,11 @@ let folderIdCache: string | null = null;
 export async function ensureFolder(): Promise<string> {
   if (folderIdCache) return folderIdCache;
   const query = `name='${q(DRIVE_FOLDER_NAME)}' and mimeType='application/vnd.google-apps.folder' and 'root' in parents and trashed=false`;
-  const res = await driveFetch(`${API}/files?q=${encodeURIComponent(query)}&fields=files(id,name)&spaces=drive`);
+  const res = await driveFetch(`${API}/files?q=${encodeURIComponent(query)}&fields=files(id,name)&spaces=drive&orderBy=createdTime desc`);
   const j = await res.json();
-  if (j.files?.length) {
-    folderIdCache = j.files[0].id as string;
+  const files: { id: string }[] = j.files ?? [];
+  if (files.length) {
+    folderIdCache = files[0].id;
     return folderIdCache;
   }
   const created = await driveFetch(`${API}/files?fields=id`, {
@@ -161,13 +162,21 @@ export function driveViewUrl(fileId: string): string {
 /* ---------- 앱 전용 숨김 폴더의 JSON 파일 ---------- */
 
 const appFileIds = new Map<string, string>();
+const appWriteQueues = new Map<string, Promise<void>>();
 
 async function findAppFile(name: string): Promise<DriveFileMeta | null> {
   const query = `name='${q(name)}' and trashed=false`;
-  const res = await driveFetch(`${API}/files?spaces=appDataFolder&q=${encodeURIComponent(query)}&fields=files(id,name,modifiedTime)`);
+  const res = await driveFetch(`${API}/files?spaces=appDataFolder&q=${encodeURIComponent(query)}&fields=files(id,name,modifiedTime)&orderBy=modifiedTime desc`);
   const j = await res.json();
-  const f = (j.files?.[0] as DriveFileMeta | undefined) ?? null;
+  const files: DriveFileMeta[] = j.files ?? [];
+  const f = files[0] ?? null;
   if (f) appFileIds.set(name, f.id);
+  // 만약 네트워크 지연 등으로 동일한 이름의 파일이 여러 개 생겼다면 오래된 것은 백그라운드에서 정리
+  if (files.length > 1) {
+    for (let i = 1; i < files.length; i++) {
+      driveFetch(`${API}/files/${encodeURIComponent(files[i].id)}`, { method: 'DELETE' }).catch(() => undefined);
+    }
+  }
   return f;
 }
 
@@ -190,7 +199,7 @@ export async function readAppJson<T>(name: string): Promise<T | null> {
   }
 }
 
-export async function writeAppJson(name: string, data: unknown): Promise<void> {
+async function writeAppJsonNow(name: string, data: unknown): Promise<void> {
   const body = JSON.stringify(data);
   let id = appFileIds.get(name);
   if (!id) {
@@ -225,6 +234,18 @@ export async function writeAppJson(name: string, data: unknown): Promise<void> {
   appFileIds.set(name, (await res.json()).id);
 }
 
+/** 동시 쓰기 요청이 들어왔을 때 중복 파일이 생기지 않도록 파일별로 순차 실행 */
+export async function writeAppJson(name: string, data: unknown): Promise<void> {
+  const prev = appWriteQueues.get(name) ?? Promise.resolve();
+  const next = prev
+    .then(() => writeAppJsonNow(name, data))
+    .finally(() => {
+      if (appWriteQueues.get(name) === next) appWriteQueues.delete(name);
+    });
+  appWriteQueues.set(name, next);
+  return next;
+}
+
 export async function deleteAppFile(name: string): Promise<void> {
   const f = appFileIds.get(name) ?? (await findAppFile(name))?.id;
   if (!f) return;
@@ -239,16 +260,39 @@ let pickerPromise: Promise<void> | null = null;
 function loadPicker(): Promise<void> {
   if (!pickerPromise) {
     pickerPromise = new Promise<void>((resolve, reject) => {
-      const done = () => window.gapi.load('picker', { callback: () => resolve(), onerror: () => reject(new Error('파일 고르기 창을 불러오지 못했어요.')) });
-      if (window.gapi) {
-        done();
+      const waitGooglePicker = (attempts = 0) => {
+        if (window.google?.picker) {
+          resolve();
+          return;
+        }
+        if (attempts > 30) {
+          reject(new Error('파일 고르기 준비에 실패했어요. 페이지를 새로고침해 보세요.'));
+          return;
+        }
+        setTimeout(() => waitGooglePicker(attempts + 1), 100);
+      };
+
+      const loadSubmodule = () => {
+        if (!window.gapi?.load) {
+          reject(new Error('구글 API 스크립트를 불러오지 못했어요.'));
+          return;
+        }
+        window.gapi.load('picker', {
+          callback: () => waitGooglePicker(),
+          onerror: () => reject(new Error('파일 고르기 창을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.')),
+        });
+      };
+
+      if (window.gapi?.load) {
+        loadSubmodule();
         return;
       }
       const s = document.createElement('script');
       s.src = 'https://apis.google.com/js/api.js';
       s.async = true;
-      s.onload = done;
-      s.onerror = () => reject(new Error('구글 API 스크립트를 불러오지 못했어요.'));
+      s.defer = true;
+      s.onload = loadSubmodule;
+      s.onerror = () => reject(new Error('구글 API 스크립트를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.'));
       document.head.appendChild(s);
     });
     pickerPromise.catch(() => {
@@ -273,24 +317,33 @@ export async function pickFromDrive(): Promise<PickedFile[]> {
   await loadGis();
   await loadPicker();
   const g = window.google;
-  return new Promise<PickedFile[]>((resolve) => {
-    const view = new g.picker.DocsView(g.picker.ViewId.DOCS).setMimeTypes('application/pdf').setIncludeFolders(true).setSelectFolderEnabled(false);
-    const picker = new g.picker.PickerBuilder()
-      .addView(view)
-      .enableFeature(g.picker.Feature.MULTISELECT_ENABLED)
-      .setOAuthToken(token)
-      .setDeveloperKey(GOOGLE_API_KEY)
-      .setAppId(GOOGLE_PROJECT_NUMBER)
-      .setLocale('ko')
-      .setTitle('영어 서재에서 쓸 PDF 고르기')
-      .setCallback((data: { action: string; docs?: { id: string; name: string; mimeType: string }[] }) => {
-        if (data.action === g.picker.Action.PICKED) {
-          resolve((data.docs ?? []).map((d) => ({ id: d.id, name: d.name, mimeType: d.mimeType })));
-        } else if (data.action === g.picker.Action.CANCEL) {
-          resolve([]);
-        }
-      })
-      .build();
-    picker.setVisible(true);
+  if (!g?.picker) throw new Error('구글 파일 고르기 창이 준비되지 않았어요.');
+
+  return new Promise<PickedFile[]>((resolve, reject) => {
+    try {
+      const view = new g.picker.DocsView(g.picker.ViewId.DOCS).setMimeTypes('application/pdf').setIncludeFolders(true).setSelectFolderEnabled(false);
+      const origin = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '';
+      const builder = new g.picker.PickerBuilder()
+        .addView(view)
+        .enableFeature(g.picker.Feature.MULTISELECT_ENABLED)
+        .setOAuthToken(token)
+        .setDeveloperKey(GOOGLE_API_KEY)
+        .setAppId(GOOGLE_PROJECT_NUMBER)
+        .setLocale('ko')
+        .setTitle('영어 서재에서 쓸 PDF 고르기')
+        .setCallback((data: { action: string; docs?: { id: string; name: string; mimeType: string }[] }) => {
+          if (data.action === g.picker.Action.PICKED) {
+            resolve((data.docs ?? []).map((d) => ({ id: d.id, name: d.name, mimeType: d.mimeType })));
+          } else if (data.action === g.picker.Action.CANCEL) {
+            resolve([]);
+          }
+        });
+
+      if (origin) builder.setOrigin(origin);
+      const picker = builder.build();
+      picker.setVisible(true);
+    } catch (e) {
+      reject(new Error(`파일 고르기 창을 열지 못했어요: ${e instanceof Error ? e.message : '알 수 없는 오류'}`));
+    }
   });
 }
