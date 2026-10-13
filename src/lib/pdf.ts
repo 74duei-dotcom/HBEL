@@ -97,7 +97,8 @@ function joinLines(lines: string[]): string {
     if (!text) {
       text = line;
     } else if (/[A-Za-z]-$/.test(text) && /^[a-z]/.test(line)) {
-      text = text.slice(0, -1) + line;
+      const head = /([A-Za-z]+)-$/.exec(text)?.[1].toLowerCase() ?? '';
+      text = KEEP_HYPHEN.has(head) ? text + line : text.slice(0, -1) + line;
     } else {
       text += ' ' + line;
     }
@@ -113,10 +114,24 @@ function isHeadingLine(line: string, next: string | undefined): boolean {
   if (line.length > 90) return false;
   if (/[.,;:?!)\-–]$/.test(line)) return false;
   if (/^(abstract|introduction|background|methods?|materials and methods|results|discussion|conclusions?|references|keywords?)\b/i.test(line)) return true;
-  if (!next) return false;
-  // 다음 줄이 대문자로 시작하고, 지금 줄이 짧으면 제목으로 봄
-  return /^[A-Z0-9]/.test(next) && line.length < 70 && line.split(' ').length <= 12;
+  if (!next || !/^[A-Z0-9]/.test(next) || line.length >= 70) return false;
+  // 번호 붙은 소제목: "2. Methods", "2.1 Study design", "II. Results"
+  if (/^(\d+(\.\d+)*\.?|[IVX]+\.)\s+\S/.test(line)) return true;
+  const words = line.split(' ');
+  if (words.length > 12) return false;
+  // 전부 대문자인 제목: "LOW BACK PAIN"
+  if (/[A-Z]/.test(line) && line === line.toUpperCase()) return true;
+  // 제목형(단어 첫 글자가 대문자): 2단 논문에서 문장 중간에 끊긴 짧은 줄을 제목으로 오해하지 않도록 엄격하게 봄
+  const big = words.filter((w) => w.replace(/[^A-Za-z]/g, '').length > 3);
+  const lastWord = words[words.length - 1].toLowerCase();
+  return big.length > 0 && big.every((w) => /^[A-Z0-9(]/.test(w)) && !TITLE_END_STOP.has(lastWord);
 }
+
+/** 이런 단어로 끝나는 줄은 제목이 아니라 문장 중간일 가능성이 큼 */
+const TITLE_END_STOP = new Set(['of', 'the', 'a', 'an', 'and', 'or', 'in', 'on', 'to', 'for', 'with', 'by', 'from', 'at', 'as', 'is', 'was', 'were', 'are', 'that', 'which', 'than']);
+
+/** 줄 끝 하이픈 앞에 이런 단어가 오면 원래 하이픈이 있는 합성어(well-known 등)로 보고 하이픈을 남김 */
+const KEEP_HYPHEN = new Set(['well', 'non', 'self', 'long', 'short', 'high', 'low', 'cross', 'all', 'full', 'real', 'large', 'small', 'middle', 'double', 'single', 'first', 'second', 'third', 'least', 'most', 'better', 'best']);
 
 function paragraphs(lines: string[]): string[][] {
   const out: string[][] = [];

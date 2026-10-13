@@ -103,7 +103,7 @@ export default function UploadPage() {
       patch(job.key, { stage: 'saving', progress: 1 });
       const synced = await saveDocContent({ id, pages: res.pages });
       upsertDoc({ ...doc, status: 'ready' });
-      patch(job.key, { stage: 'done', docId: id, warn: 'AI가 들은 대로 받아 적은 자막이라 틀린 곳이 있을 수 있어요.' + (synced || !hasValidToken() ? '' : ' 드라이브에는 저장하지 못해 이 기기에만 저장했어요.') });
+      patch(job.key, { stage: 'done', docId: id, warn: (res.partial ? res.partial + ' ' : '') + 'AI가 들은 대로 받아 적은 자막이라 틀린 곳이 있을 수 있어요.' + (synced || !hasValidToken() ? '' : ' 드라이브에는 저장하지 못해 이 기기에만 저장했어요.') });
     } catch (e) {
       patch(job.key, { stage: 'error', message: errorMessage(e) });
     }

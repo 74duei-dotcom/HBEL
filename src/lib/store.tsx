@@ -101,23 +101,42 @@ export async function loadAnalysis(id: string): Promise<DocAnalysisCache> {
   }
 }
 
-const analysisTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const analysisTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; cache: DocAnalysisCache }>();
+
+function uploadAnalysis(cache: DocAnalysisCache): void {
+  if (hasValidToken()) writeAppJson(`ana-${cache.id}.json`, cache).catch(() => undefined);
+}
 
 /** 분석 결과는 자주 바뀌므로 기기에 바로 저장하고, 드라이브에는 몇 초 모았다가 올림 */
 export async function saveAnalysis(cache: DocAnalysisCache): Promise<void> {
   await idbSet(`ana:${cache.id}`, cache);
   const prev = analysisTimers.get(cache.id);
-  if (prev) clearTimeout(prev);
-  analysisTimers.set(
-    cache.id,
-    setTimeout(() => {
+  if (prev) clearTimeout(prev.timer);
+  analysisTimers.set(cache.id, {
+    cache,
+    timer: setTimeout(() => {
       analysisTimers.delete(cache.id);
-      if (hasValidToken()) writeAppJson(`ana-${cache.id}.json`, cache).catch(() => undefined);
-    }, 4000)
-  );
+      uploadAnalysis(cache);
+    }, 4000),
+  });
+}
+
+/** 화면이 가려지거나 닫히기 전에, 기다리던 분석 결과를 바로 드라이브에 올림 */
+export function flushAnalysisUploads(): void {
+  for (const [id, p] of analysisTimers) {
+    clearTimeout(p.timer);
+    analysisTimers.delete(id);
+    uploadAnalysis(p.cache);
+  }
 }
 
 export async function removeDocFiles(id: string): Promise<void> {
+  // 지운 자료의 분석 결과가 뒤늦게 드라이브에 다시 올라가지 않게 예약을 취소
+  const pend = analysisTimers.get(id);
+  if (pend) {
+    clearTimeout(pend.timer);
+    analysisTimers.delete(id);
+  }
   await idbDel(`doc:${id}`);
   await idbDel(`ana:${id}`);
   await idbDel(`video:${id}`);
@@ -248,11 +267,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const onOffline = () => setSync('offline');
     const onVisible = () => {
       if (document.visibilityState === 'visible') void syncNow();
+      else flushAnalysisUploads();
     };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('pagehide', flushAnalysisUploads);
     return () => {
+      window.removeEventListener('pagehide', flushAnalysisUploads);
       alive = false;
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);

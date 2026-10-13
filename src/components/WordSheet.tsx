@@ -37,8 +37,11 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
   const vocabRef = useRef(data.vocab);
   vocabRef.current = data.vocab;
 
+  const reqId = useRef(0);
+
   const load = useCallback(async () => {
     if (!target) return;
+    const my = ++reqId.current; // 더 새로운 요청이 시작되면 이전 요청의 결과는 화면에 반영하지 않음
     const key = cleanWord(target.word).toLowerCase();
     setErr('');
     setSaved('');
@@ -53,12 +56,13 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
     setLoading(true);
     try {
       const res = await lookupWord(cleanWord(target.word), target.sentence, kind);
-      onCache(res);
+      onCache(res); // 늦게 도착해도 캐시에는 저장
+      if (my !== reqId.current) return;
       setInfo(res);
     } catch (e) {
-      setErr(errorMessage(e));
+      if (my === reqId.current) setErr(errorMessage(e));
     } finally {
-      setLoading(false);
+      if (my === reqId.current) setLoading(false);
     }
   }, [target, cached, onCache, kind]);
 
@@ -93,7 +97,8 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
       status,
       sources: sources.slice(0, 10),
       updatedAt: nowIso(),
-      card: current?.card ?? newCard(),
+      // '알아요'였던 단어를 다시 '학습하기'로 바꾸면 복습 카드를 새로 시작 (단어 상세 화면과 같은 동작)
+      card: current && !(current.status === 'known' && status === 'learning') ? current.card : newCard(),
       createdAt: current?.createdAt ?? nowIso(),
     } as VocabItem;
     upsertVocab(item);

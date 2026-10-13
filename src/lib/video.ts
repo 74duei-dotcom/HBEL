@@ -3,7 +3,7 @@
 // 영상 파일 자체는 이 기기에만 저장하고(IndexedDB) 구글 드라이브·AI에는 올리지 않음. AI에는 소리 조각만 보냄
 
 import { del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
-import { callGeminiWithAudio, callGeminiWithVideoUrl } from './ai';
+import { AIError, callGeminiWithAudio, callGeminiWithVideoUrl } from './ai';
 import { extractJson } from './claude';
 import { splitSentences } from './pdf';
 import type { DocContent } from './types';
@@ -118,6 +118,13 @@ function parseT(t: unknown): number {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 잠시 쉬었다 다시 시도할 만한 오류인가 (한도·서버 혼잡·느린 응답·깨진 답) */
+function isRetryable(e: unknown): boolean {
+  if (!(e instanceof AIError)) return false;
+  if (e.kind === 'rate-limit' || e.kind === 'overloaded' || e.kind === 'network') return true;
+  return e.kind === 'bad-response' && /읽지 못|형식이 맞지|답을 주지/.test(e.message);
+}
+
 async function transcribeClip(samples: Float32Array, offset: number): Promise<{ time: number; text: string }[]> {
   const b64 = toWavBase64(samples);
   let lastErr: unknown;
@@ -131,9 +138,8 @@ async function transcribeClip(samples: Float32Array, offset: number): Promise<{ 
         .filter((s) => /[A-Za-z]/.test(s.text));
     } catch (e) {
       lastErr = e;
-      const msg = e instanceof Error ? e.message : '';
       // 무료 한도·서버 혼잡이면 잠시 쉬었다 다시 시도
-      if (/한도|바빠|json|JSON/.test(msg) && attempt < 3) {
+      if (isRetryable(e) && attempt < 3) {
         await sleep(attempt === 0 ? 8000 : 25000);
         continue;
       }
@@ -147,6 +153,8 @@ export interface VideoTranscript {
   pages: DocContent['pages'];
   duration: number;
   sentenceCount: number;
+  /** 중간에 오류로 멈춰 앞부분만 받았을 때의 안내 문구 */
+  partial?: string;
 }
 
 /** 영상 → 영어 자막 문서. 4분 구간이 한 "쪽"이 됨 */
@@ -256,8 +264,7 @@ async function transcribeYoutubeRange(id: string, start: number, end: number): P
       return { segs, length: parseT(j.length) };
     } catch (e) {
       lastErr = e;
-      const msg = e instanceof Error ? e.message : '';
-      if (/한도|바빠|json|JSON/.test(msg) && attempt < 3) {
+      if (isRetryable(e) && attempt < 3) {
         await sleep(attempt === 0 ? 8000 : 25000);
         continue;
       }
@@ -271,6 +278,8 @@ async function transcribeYoutubeRange(id: string, start: number, end: number): P
 export async function transcribeYoutube(id: string, onProgress?: (done: number) => void): Promise<VideoTranscript> {
   const pages: DocContent['pages'] = [];
   let chunks = YT_MAX_CHUNKS; // 영상 길이를 알게 되면 줄임
+  let lengthKnown = false;
+  let partial: string | undefined;
   for (let c = 0; c < chunks; c++) {
     onProgress?.(c);
     const start = c * YT_CHUNK;
@@ -278,10 +287,15 @@ export async function transcribeYoutube(id: string, onProgress?: (done: number) 
     try {
       const r = await transcribeYoutubeRange(id, start, start + YT_CHUNK);
       segs = r.segs;
-      if (c === 0 && r.length >= 10 && r.length < YT_MAX_CHUNKS * YT_CHUNK) chunks = Math.max(1, Math.ceil(r.length / YT_CHUNK));
+      if (c === 0 && r.length >= 10 && r.length < YT_MAX_CHUNKS * YT_CHUNK) {
+        chunks = Math.max(1, Math.ceil(r.length / YT_CHUNK));
+        lengthKnown = true;
+      }
     } catch (e) {
-      if (c > 0) break; // 영상 끝을 넘어선 구간이거나 일시 오류: 지금까지 받은 것으로 마무리
-      throw e;
+      if (c === 0) throw e;
+      // 영상 길이를 아는데 중간에 실패했다면 진짜 오류 → 앞부분만 받았다고 알림. 길이를 모르면 영상 끝으로 보고 마무리
+      if (lengthKnown) partial = `${c + 1}번째 10분 구간부터는 받아 적지 못했어요(${e instanceof Error ? e.message : '오류'}). 앞부분만 저장했어요.`;
+      break;
     }
     if (!segs.length) {
       if (c === 0) throw new Error('영어 말소리를 찾지 못했어요. 비공개·연령 제한 영상이거나 영어가 아닐 수 있어요.');
@@ -304,7 +318,7 @@ export async function transcribeYoutube(id: string, onProgress?: (done: number) 
   }
   const sentenceCount = pages.reduce((n, p) => n + p.sentences.length, 0);
   const lastTime = pages.length ? Math.max(...(pages[pages.length - 1].times ?? [0])) : 0;
-  return { pages, duration: lastTime, sentenceCount };
+  return { pages, duration: lastTime, sentenceCount, partial };
 }
 
 /* 유튜브 플레이어(IFrame API) */

@@ -76,7 +76,7 @@ export default function SetupPage() {
     { title: 'AI 연결 (Gemini)', help: '번역 · 한글 발음 · 용어 사전 · 문법 · AI 대화' },
     { title: '구글 계정으로 연결', help: '드라이브 ‘영어서재’ 폴더에 자료·기록 저장 · PC와 휴대폰 함께 쓰기' },
     { title: '앱 설치', help: '홈 화면·바탕화면 아이콘으로 바로 열기 · 오프라인 읽기' },
-    { title: '발음 평가 키 (선택)', help: '발음 점수가 필요할 때만 · 2단계에서 설정해요' },
+    { title: '발음 연습 (선택)', help: '마이크로 따라 읽으면 AI가 점수를 줘요 · 따로 설정할 것 없어요' },
   ];
 
   return (
@@ -180,9 +180,9 @@ export default function SetupPage() {
 
               {active && i === 3 && (
                 <div className="stack" style={{ marginTop: 12 }}>
-                  <span className="muted">발음 평가는 2단계에서 추가돼요. 지금은 건너뛰어도 돼요.</span>
+                  <span className="muted">발음 연습 탭에서 문장을 고르고 따라 읽으면 돼요. 1단계에서 넣은 Gemini 키를 그대로 쓰고, 마이크 권한만 허용해 주세요.</span>
                   <button className="btn" onClick={() => markDone(3)}>
-                    지금은 건너뛰기
+                    확인했어요
                   </button>
                 </div>
               )}

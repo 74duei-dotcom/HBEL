@@ -3,7 +3,7 @@
 #
 # 준비: GitHub 저장소 > Settings > Secrets and variables > Actions > Variables 탭에서 아래 4개를 등록
 #   GOOGLE_CLIENT_ID, GOOGLE_API_KEY, GOOGLE_PROJECT_NUMBER  (구글 클라우드에서 받은 값)
-#   (선택) CLAUDE_MODEL, GEMINI_MODEL
+#   (선택) GEMINI_MODEL, GEMINI_TTS_MODEL
 # 그리고 Settings > Pages > Build and deployment > Source 를 "GitHub Actions" 로 선택
 name: Deploy to GitHub Pages
 
@@ -37,7 +37,6 @@ jobs:
           NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
           NEXT_PUBLIC_GOOGLE_API_KEY: ${{ vars.GOOGLE_API_KEY }}
           NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER: ${{ vars.GOOGLE_PROJECT_NUMBER }}
-          NEXT_PUBLIC_CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-haiku-5-5' }}
           NEXT_PUBLIC_GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.5-flash-lite' }}
           NEXT_PUBLIC_GEMINI_TTS_MODEL: ${{ vars.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts' }}
       - run: touch out/.nojekyll

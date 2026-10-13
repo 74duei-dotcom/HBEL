@@ -152,13 +152,6 @@ export default function SettingsPage() {
               )}
             </div>
           </div>
-          <div className="card between">
-            <span className="stack" style={{ gap: 2 }}>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>PC 도우미</span>
-              <span className="small">영상 자막 · 스캔본 글자 인식 · 휴대폰용 압축본</span>
-            </span>
-            <span className="chip later">3단계에서 추가</span>
-          </div>
         </section>
 
         <section className="stack" style={{ gap: 6 }}>
@@ -193,7 +186,7 @@ export default function SettingsPage() {
               <Icon name="upload" size={18} />
             </button>
           </div>
-          <span className="small">영어 서재 0.1.0 · 1단계</span>
+          <span className="small">영어 서재 0.1.0</span>
         </section>
       </main>
     </>

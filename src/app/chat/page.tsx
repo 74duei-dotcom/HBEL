@@ -27,6 +27,8 @@ export default function ChatPage() {
   const [listening, setListening] = useState(false);
   const [review, setReview] = useState<ChatReview | null>(null);
   const stopListen = useRef<(() => void) | null>(null);
+  // 말하기 세션 번호: 보내기·끝내기 뒤에 늦게 도착한 인식 결과가 입력창을 다시 채우지 않게 함
+  const listenId = useRef(0);
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,6 +79,7 @@ export default function ChatPage() {
   const send = async () => {
     const text = draft.trim();
     if (!text || busy || !sc) return;
+    listenId.current++;
     stopListen.current?.();
     stopSpeaking();
     const next: ChatTurn[] = [...turns, { role: 'me', text }];
@@ -112,8 +115,11 @@ export default function ChatPage() {
     stopSpeaking();
     setErr('');
     setListening(true);
+    const sid = ++listenId.current;
     stopListen.current = listen(
-      (t) => setDraft(t),
+      (t) => {
+        if (sid === listenId.current) setDraft(t);
+      },
       (e) => {
         setListening(false);
         if (e) setErr(e);
@@ -124,6 +130,7 @@ export default function ChatPage() {
   const finish = async () => {
     if (!sc) return;
     stopSpeaking();
+    listenId.current++;
     stopListen.current?.();
     if (!turns.some((t) => t.role === 'me')) {
       setPhase('pick');

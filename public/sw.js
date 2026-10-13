@@ -4,7 +4,7 @@
  * - 구글 드라이브·Gemini API 요청은 절대 저장하지 않습니다(항상 네트워크).
  * - 버전을 바꾸면 옛 캐시는 자동으로 지워집니다.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `shell-${VERSION}`;
 const ASSET_CACHE = `assets-${VERSION}`;
 // 하위 경로(GitHub Pages)에서도 동작하도록 서비스 워커의 위치를 기준으로 경로를 만듦
@@ -33,8 +33,7 @@ function isApiRequest(url) {
   return (
     url.hostname.endsWith('googleapis.com') ||
     url.hostname.endsWith('google.com') ||
-    url.hostname.endsWith('gstatic.com') ||
-    url.hostname.endsWith('anthropic.com')
+    url.hostname.endsWith('gstatic.com')
   );
 }
 
@@ -49,11 +48,15 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(SHELL_CACHE).then((c) => c.put(req, copy));
+          // 정상 응답만 저장 (404 등은 저장하지 않음)
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(SHELL_CACHE).then((c) => c.put(req, copy));
+          }
           return res;
         })
-        .catch(() => caches.match(req).then((r) => r || caches.match(BASE)))
+        // ?id=… 가 달라도 같은 화면(reader, word 등)이므로 주소 뒤 검색어는 무시하고 찾음
+        .catch(() => caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match(BASE)).then((r) => r || Response.error()))
     );
     return;
   }
@@ -68,7 +71,7 @@ self.addEventListener('fetch', (event) => {
             if (res.ok) cache.put(req, res.clone());
             return res;
           })
-          .catch(() => cached);
+          .catch(() => cached || Response.error());
         return cached || network;
       })
     );

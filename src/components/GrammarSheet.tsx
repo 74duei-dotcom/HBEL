@@ -1,7 +1,7 @@
 'use client';
 // 지금 문장의 문법을 분석해서 보여주는 아래 창 - 마음에 드는 항목은 "문법 노트"에 저장
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { analyzeGrammar, grammarId } from '@/lib/grammar';
 import type { DocKind, GrammarAnalysis, GrammarExample, GrammarItem, GrammarPoint } from '@/lib/types';
@@ -29,8 +29,11 @@ export function GrammarSheet({ target, docId, docTitle, kind, cached, onCache, o
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const reqId = useRef(0);
+
   const load = useCallback(async () => {
     if (!target) return;
+    const my = ++reqId.current; // 더 새로운 요청이 시작되면 이전 요청의 결과는 화면에 반영하지 않음
     setErr('');
     const hit = cached(target);
     if (hit) {
@@ -41,12 +44,13 @@ export function GrammarSheet({ target, docId, docTitle, kind, cached, onCache, o
     setLoading(true);
     try {
       const res = await analyzeGrammar(target.sentence, kind);
-      onCache(target, res);
+      onCache(target, res); // 늦게 도착해도 캐시에는 저장
+      if (my !== reqId.current) return;
       setInfo(res);
     } catch (e) {
-      setErr(errorMessage(e));
+      if (my === reqId.current) setErr(errorMessage(e));
     } finally {
-      setLoading(false);
+      if (my === reqId.current) setLoading(false);
     }
   }, [target, cached, onCache, kind]);
 

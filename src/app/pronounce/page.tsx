@@ -54,7 +54,11 @@ function Practice({ sentence, onBack }: { sentence: string; onBack: () => void }
     }
   };
 
+  const starting = useRef(false);
+
   const begin = async () => {
+    if (starting.current || rec.current) return; // 연타해도 마이크를 한 번만 켬
+    starting.current = true;
     stopSpeaking();
     setErr('');
     setResult(null);
@@ -63,6 +67,8 @@ function Practice({ sentence, onBack }: { sentence: string; onBack: () => void }
     } catch (e) {
       setErr(errorMessage(e));
       return;
+    } finally {
+      starting.current = false;
     }
     setSecs(0);
     setState('recording');

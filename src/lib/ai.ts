@@ -186,8 +186,14 @@ async function geminiRequest(key: string, system: string, user: string, maxToken
     } catch {
       /* 무시 */
     }
+    if (/location is not supported|not available in your (country|region)/i.test(detail)) {
+      throw new AIError('bad-response', p, '이 지역에서는 Gemini를 쓸 수 없어요(지역 제한). VPN 등 네트워크 환경을 확인해 주세요.');
+    }
     const invalid = res.status === 403 || status.includes('API_KEY_INVALID') || /api key not valid/i.test(detail);
-    if (invalid) throw new AIError('bad-key', p, 'Gemini API 키가 올바르지 않아요. 설정에서 다시 확인해 주세요.');
+    if (invalid) {
+      const extra = res.status === 403 && detail ? ` (403: ${detail.slice(0, 120)})` : '';
+      throw new AIError('bad-key', p, `Gemini API 키가 올바르지 않거나 쓸 수 없어요. 설정에서 다시 확인해 주세요.${extra}`);
+    }
     if (res.status === 429) throw new AIError('rate-limit', p, 'Gemini 무료 한도에 도달했어요. 잠시 후 다시 시도해 주세요.');
     if (res.status >= 500) throw new AIError('overloaded', p, 'Gemini 서버가 바빠요. 잠시 후 다시 시도해 주세요.');
     throw new AIError('bad-response', p, `Gemini 오류(${res.status}) ${detail}`.trim());

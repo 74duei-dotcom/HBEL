@@ -44,7 +44,7 @@ function canDeviceSpeak(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window;
 }
 
-function deviceSpeak(text: string, rate: number, onEnd?: () => void): void {
+function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => void): void {
   if (!canDeviceSpeak()) {
     onEnd?.();
     return;
@@ -56,8 +56,12 @@ function deviceSpeak(text: string, rate: number, onEnd?: () => void): void {
   const v = pickVoice();
   if (v) u.voice = v;
   if (onEnd) {
-    u.onend = onEnd;
-    u.onerror = onEnd;
+    // 취소된 이전 낭독의 종료 알림이 새 낭독의 상태를 건드리지 않게, 최신 요청일 때만 알림
+    const done = () => {
+      if (mine === ticket) onEnd();
+    };
+    u.onend = done;
+    u.onerror = done;
   }
   window.speechSynthesis.speak(u);
 }
@@ -200,7 +204,7 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
   if (canDeviceSpeak()) window.speechSynthesis.cancel();
 
   if (getTtsEngine() !== 'gemini' || !getGeminiKeys().length || geminiFailures >= 2) {
-    deviceSpeak(t, rate, onEnd);
+    deviceSpeak(t, rate, mine, onEnd);
     return;
   }
   void (async () => {
@@ -227,7 +231,7 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
       if (mine !== ticket) return;
       geminiFailures++;
       lastTtsError = e instanceof Error ? e.message : String(e);
-      deviceSpeak(t, rate, onEnd);
+      deviceSpeak(t, rate, mine, onEnd);
     }
   })();
 }
