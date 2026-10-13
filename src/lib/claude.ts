@@ -74,7 +74,7 @@ Be fast and concise. Return ONLY a JSON object, no prose, with these keys:
  "contextNote": string (one short Korean sentence explaining the meaning in this context)}
 ${HANGUL_RULES}`;
   const user = `Word: ${word}\nSentence: ${sentence}`;
-  const text = await callAI(system, user, 600, { timeoutMs: 60000, priority: 'user' });
+  const text = await callAI(system, user, 400, { timeoutMs: 60000, priority: 'user' });
   const j = extractJson<Partial<WordInfo>>(text);
   const syllables = Array.isArray(j.syllables)
     ? j.syllables
