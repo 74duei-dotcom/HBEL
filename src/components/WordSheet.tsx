@@ -59,7 +59,10 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
     setInfo(null);
     setLoading(true);
     try {
-      const res = await lookupWord(cleanWord(target.word), target.sentence, kind);
+      // 발음은 바로 보여주고(부분 결과) 뜻·어원은 AI 답이 오면 채움
+      const res = await lookupWord(cleanWord(target.word), target.sentence, kind, (partial) => {
+        if (my === reqId.current) setInfo(partial);
+      });
       onCache(res); // 늦게 도착해도 캐시에는 저장
       // 단어장에 이미 있는 단어는 발음 정보만 새 규칙으로 갱신 (뜻·복습 기록은 그대로)
       const old = vocabRef.current[res.lemma.toLowerCase()];
@@ -161,7 +164,7 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
             </div>
           )}
 
-          {info && (
+          {info && !loading && !!info.meaning && (
             <>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{info.meaning}</div>
               <SyllableGuide syllables={info.syllables} />

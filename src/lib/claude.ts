@@ -3,6 +3,7 @@
 // - 단어 사전: 뜻·품사·발음기호·한글 발음(강세)·의학용어 여부·어원
 // - 문장 분석: 번역 + 단어별 한글 발음(연음 반영)
 
+import { localPronunciation } from './phonetics';
 import { AIError, callAI, getProvider } from './ai';
 import type { DocKind, SentenceAnalysis, WordInfo } from './types';
 import { tokenize } from './util';
@@ -65,29 +66,42 @@ function joinHangul(syl: { ko: string; stress: boolean }[]): string {
 const lookupInflight = new Map<string, Promise<WordInfo>>();
 
 /** 같은 단어를 동시에 두 번 묻지 않게 함 (개발 모드 이중 실행·연타 대비) */
-export function lookupWord(word: string, sentence: string, kind: DocKind): Promise<WordInfo> {
+export function lookupWord(word: string, sentence: string, kind: DocKind, onPartial?: (partial: WordInfo) => void): Promise<WordInfo> {
   const key = `${word.toLowerCase()}|${sentence}`;
   const hit = lookupInflight.get(key);
   if (hit) return hit;
-  const p = lookupWordNow(word, sentence, kind).finally(() => lookupInflight.delete(key));
+  const p = lookupWordNow(word, sentence, kind, onPartial).finally(() => lookupInflight.delete(key));
   lookupInflight.set(key, p);
   return p;
 }
 
-async function lookupWordNow(word: string, sentence: string, kind: DocKind): Promise<WordInfo> {
+/** 이 음절 수보다 길면 규칙 발음이 어색할 수 있어 AI 발음을 쓴다 */
+const LOCAL_PRON_MAX_SYLLABLES = 5;
+
+async function lookupWordNow(word: string, sentence: string, kind: DocKind, onPartial?: (partial: WordInfo) => void): Promise<WordInfo> {
+  // 발음(IPA·한글·음절)은 이 기기에서 바로 만들고, AI에게는 뜻·어원·문맥 설명만 묻는다 (더 빠르고 한도도 덜 씀)
+  const pron = await localPronunciation(word).catch(() => null);
+  const useLocal = !!pron && pron.syllables.length <= LOCAL_PRON_MAX_SYLLABLES;
+  if (useLocal && pron) {
+    onPartial?.({ word, lemma: word.toLowerCase(), pos: '', ipa: pron.ipa, syllables: pron.syllables, hangul: pron.hangul, meaning: '', isMedical: false, etymology: '', contextNote: '', hv: HANGUL_VERSION });
+  }
+  const pronKeys = useLocal
+    ? ''
+    : ` "ipa": string (American IPA with slashes AND stress marks ˈ (primary) ˌ (secondary), e.g. "/ɪkˈsprɛs/"),
+ "syllables": [{"en": string (spelling chunk), "ko": string (Hangul sound of this syllable), "stress": boolean (true for the primary-stressed syllable), "why": string (very short Korean reason, <=25 chars, why it is read this way, e.g. "x는 'ks' 소리라 '익스'")}] (spelling chunks joined must equal the word),
+`;
+  const pronRules = useLocal ? '' : `
+${HANGUL_RULES}`;
   const system = `You are an English-Korean dictionary for a Korean rehabilitation-exercise center director who reads ${KIND_LABEL[kind]}.
 Be fast and concise. Return ONLY a JSON object, no prose, with these keys:
 {"word": string (as it appears), "lemma": string (dictionary form, lowercase unless proper noun),
  "pos": string (Korean part of speech, e.g. "명사","동사","형용사","부사","구동사"),
- "ipa": string (American IPA with slashes AND stress marks ˈ (primary) ˌ (secondary), e.g. "/ɪkˈsprɛs/"),
- "syllables": [{"en": string (spelling chunk), "ko": string (Hangul sound of this syllable), "stress": boolean (true for the primary-stressed syllable), "why": string (very short Korean reason, <=25 chars, why it is read this way, e.g. "x는 'ks' 소리라 '익스'")}] (spelling chunks joined must equal the word),
- "meaning": string (concise Korean meaning that fits THIS sentence; for medical terms give the standard Korean medical term, e.g. "척추전방전위증"),
+${pronKeys} "meaning": string (concise Korean meaning that fits THIS sentence; for medical terms give the standard Korean medical term, e.g. "척추전방전위증"),
  "isMedical": boolean (true if a medical/anatomical/clinical term),
  "etymology": string (Korean, ONE short line on the word's origin for EVERY word: source language + original word + its meaning, e.g. "라틴어 ex(밖으로) + premere(누르다) → 짜내다 → 표현하다"; for medical terms break into morphemes like "spondylo 척추 + olisthesis 미끄러짐"),
- "contextNote": string (one short Korean sentence explaining the meaning in this context)}
-${HANGUL_RULES}`;
+ "contextNote": string (one short Korean sentence explaining the meaning in this context)}${pronRules}`;
   const user = `Word: ${word}\nSentence: ${sentence}`;
-  const text = await callAI(system, user, 400, { timeoutMs: 60000, priority: 'user' });
+  const text = await callAI(system, user, useLocal ? 300 : 400, { timeoutMs: 60000, priority: 'user' });
   const j = extractJson<Partial<WordInfo>>(text);
   const syllables = Array.isArray(j.syllables)
     ? j.syllables
@@ -95,12 +109,12 @@ ${HANGUL_RULES}`;
         .filter((s) => s.en || s.ko)
     : [];
   return {
-    syllables,
+    syllables: useLocal && pron ? pron.syllables : syllables,
     word: String(j.word ?? word),
     lemma: String(j.lemma ?? word).trim() || word.toLowerCase(),
     pos: String(j.pos ?? ''),
-    ipa: String(j.ipa ?? ''),
-    hangul: String(j.hangul ?? '') || joinHangul(syllables),
+    ipa: useLocal && pron ? pron.ipa : String(j.ipa ?? ''),
+    hangul: useLocal && pron ? pron.hangul : String(j.hangul ?? '') || joinHangul(syllables),
     meaning: String(j.meaning ?? ''),
     isMedical: Boolean(j.isMedical),
     etymology: String(j.etymology ?? ''),
