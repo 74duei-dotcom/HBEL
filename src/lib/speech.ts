@@ -82,6 +82,9 @@ let geminiFailures = 0;
 let lastGeminiFailureAt = 0;
 const FAILURE_COOLDOWN_MS = 25_000; // 25초 후에는 일시 실패 카운트를 리셋하여 다시 시도
 const memory = new Map<string, Blob>();
+/** 이 글자 수 이하(단어 수준)면 느릴 때 기기 음성으로 먼저 읽음 */
+const SHORT_TEXT_LEN = 40;
+const INSTANT_WAIT_MS = 350;
 
 /** 마지막 Gemini 음성 오류 (설정 화면에서 보여줌) */
 export let lastTtsError = '';
@@ -234,8 +237,29 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
     return;
   }
   void (async () => {
+    let usedDevice = false;
     try {
-      const blob = await getGeminiAudio(t);
+      const pending = getGeminiAudio(t);
+      let blob: Blob;
+      if (t.length <= SHORT_TEXT_LEN && canDeviceSpeak()) {
+        // 짧은 단어는 Gemini 소리가 0.35초 안에 안 오면 기기 음성으로 바로 읽고,
+        // Gemini 소리는 뒤에서 저장해 두었다가 다음번부터 즉시 재생
+        const quick = await Promise.race([
+          pending,
+          new Promise<null>((r) => setTimeout(() => r(null), INSTANT_WAIT_MS)),
+        ]);
+        if (quick) {
+          blob = quick;
+        } else {
+          if (mine !== ticket) return;
+          usedDevice = true;
+          deviceSpeak(t, rate, mine, onEnd);
+          void pending.then(() => { geminiFailures = 0; }, () => {});
+          return;
+        }
+      } else {
+        blob = await pending;
+      }
       if (mine !== ticket) return; // 그 사이 다른 소리를 요청했거나 멈춤
       geminiFailures = 0;
       lastTtsError = '';
@@ -254,7 +278,7 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
       current = a;
       await a.play();
     } catch (e) {
-      if (mine !== ticket) return;
+      if (mine !== ticket || usedDevice) return;
       geminiFailures++;
       lastGeminiFailureAt = Date.now();
       lastTtsError = e instanceof Error ? e.message : String(e);
