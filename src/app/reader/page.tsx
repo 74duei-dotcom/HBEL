@@ -484,7 +484,7 @@ function ReaderInner() {
                         <span className="skeleton" style={{ width: '80%' }} />
                       </div>
                     )}
-                    {(showHk || showTr) && !a && err && (
+                    {(showHk || showTr || (prefs.ph && show)) && (!a || (prefs.ph && a.br === undefined && !busy)) && err && (
                       <div className="banner err" style={{ marginTop: 8, fontFamily: 'var(--font-ui)' }}>
                         <span className="grow">{err}</span>
                         <button className="btn sm danger" onClick={() => void analyze([i])}>
