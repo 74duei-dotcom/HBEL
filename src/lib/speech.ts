@@ -18,11 +18,21 @@ const STYLE_PREFIX = 'Say in a clear, natural American English accent, at a calm
 /** 저장된 소리 구분용 버전 (지시문을 바꾸면 올림) */
 const AUDIO_VER = 'v2';
 
+/** 핸드폰·태블릿인지 (오픈소스 음성 모델은 무거워서 PC에서만 기본으로 씀) */
+export function isMobileDevice(): boolean {
+  return typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+/** 설정에서 오픈소스 음성을 직접 골랐는지 */
+function chosenLocal(): boolean {
+  return lsGet(LS_KEYS.ttsEngine) === 'local';
+}
+
 /** 설정에서 고른 음성 방식. 고른 적 없으면 Gemini 키가 있을 때 Gemini */
 export function getTtsEngine(): TtsEngine {
   const v = lsGet(LS_KEYS.ttsEngine);
   if (v === 'local' || v === 'gemini') return v; // 예전에 고른 '기기 음성'은 더 이상 선택지가 아니므로 기본값 사용
-  return 'local'; // 기본: 키·한도가 필요 없는 오픈소스 음성
+  // 기본: PC는 키·한도가 필요 없는 오픈소스 음성, 핸드폰은 가벼운 Gemini 음성(안 되면 기기 음성)
+  return isMobileDevice() ? 'gemini' : 'local';
 }
 
 export function setTtsEngine(e: TtsEngine): void {
@@ -56,7 +66,7 @@ function notifyFallback(reason: string): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(TTS_FALLBACK_EVENT, { detail: reason }));
 }
 
-function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void): void {
+function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void, onStart?: () => void): void {
   if (!canDeviceSpeak()) {
     onEnd?.();
     return;
@@ -67,6 +77,7 @@ function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => voi
   u.rate = rate;
   const v = pickVoice();
   if (v) u.voice = v;
+  if (onStart) u.onstart = () => mine === ticket && onStart();
   if (onProgress) u.onboundary = (e) => mine === ticket && onProgress(e.charIndex / Math.max(1, text.length));
   if (onEnd) {
     // 취소된 이전 낭독의 종료 알림이 새 낭독의 상태를 건드리지 않게, 최신 요청일 때만 알림
@@ -77,6 +88,8 @@ function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => voi
     u.onerror = done;
   }
   window.speechSynthesis.speak(u);
+  // 일부 폰은 음성이 없거나 종료 알림이 오지 않아 '재생 중' 상태에 갇힘 → 넉넉한 시간이 지나면 풀어 줌
+  if (onEnd) setTimeout(() => mine === ticket && onEnd(), text.length * 130 / Math.max(0.3, rate) + 6000);
 }
 
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -225,10 +238,30 @@ async function getGeminiAudioNow(key: string, text: string): Promise<Blob> {
   return blob;
 }
 
+/** 하나의 재생기를 계속 재사용 (모바일은 사용자가 누른 순간 재생을 허락받은 재생기만 나중에도 소리를 낼 수 있음) */
+let player: HTMLAudioElement | null = null;
+let currentUrl = '';
+const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
+/** 버튼을 누른 바로 그 순간(소리가 만들어지기 전)에 호출: 재생기를 미리 '깨워' 둠 */
+function unlockAudio(): void {
+  if (typeof Audio === 'undefined') return;
+  if (!player) player = new Audio();
+  try {
+    player.src = SILENT_WAV;
+    void player.play().catch(() => undefined);
+  } catch {
+    /* 무시 */
+  }
+}
+
 function stopCurrent(): void {
   if (current) {
+    current.onended = null;
+    current.onerror = null;
     current.pause();
-    URL.revokeObjectURL(current.src);
+    if (currentUrl) URL.revokeObjectURL(currentUrl);
+    currentUrl = '';
     current = null;
   }
 }
@@ -238,10 +271,17 @@ export function canSpeak(): boolean {
 }
 
 /** 만들어 둔 소리를 재생 */
-async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void): Promise<void> {
+async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void, onStart?: () => void): Promise<void> {
   if (mine !== ticket) return; // 그 사이 다른 소리를 요청했거나 멈춤
   const url = URL.createObjectURL(blob);
-  const a = new Audio(url);
+  const a = player ?? new Audio();
+  player = a;
+  a.onended = null;
+  a.onerror = null;
+  a.pause();
+  if (currentUrl) URL.revokeObjectURL(currentUrl);
+  currentUrl = url;
+  a.src = url;
   a.playbackRate = rate;
   // 재생 위치(시간 비율)를 알려 줌 → 읽는 단어 표시에 사용
   let raf = 0;
@@ -252,8 +292,9 @@ async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => vo
   };
   const done = () => {
     cancelAnimationFrame(raf);
-    if (current === a) {
+    if (current === a && currentUrl === url) {
       URL.revokeObjectURL(url);
+      currentUrl = '';
       current = null;
     }
     if (mine === ticket) onEnd?.();
@@ -262,20 +303,23 @@ async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => vo
   a.onerror = done;
   current = a;
   await a.play();
+  if (mine === ticket) onStart?.();
   if (onProgress) raf = requestAnimationFrame(tick);
 }
 
 /** 오픈소스 음성으로 읽기. 모델이 아직 준비 전이면 기기 음성으로 먼저 읽고 뒤에서 모델을 준비. 성공하면 true */
-async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void): Promise<boolean> {
+async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void, onStart?: () => void): Promise<boolean> {
   try {
     if (!isLocalReady() && !(await hasLocalAudio(t))) {
       if (mine !== ticket) return true;
+      // 핸드폰은 직접 고르지 않았다면 무거운 모델을 내려받지 않고 바로 다음 방법으로 넘어감
+      if (isMobileDevice() && !chosenLocal()) return false;
       void loadLocalModel().catch(() => undefined);
       notifyFallback('오픈소스 음성 모델을 처음 한 번 내려받는 중이에요(약 90MB). 준비되면 자동으로 자연스러운 소리로 바뀌어요.');
       return false;
     }
     const blob = await generateLocal(t);
-    await playBlob(blob, rate, mine, onEnd, onProgress);
+    await playBlob(blob, rate, mine, onEnd, onProgress, onStart);
     return true;
   } catch (e) {
     lastTtsError = e instanceof Error ? e.message : String(e);
@@ -284,7 +328,8 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
 }
 
 /** onProgress: 지금 읽는 위치를 글자 수 기준 0~1 비율로 알려 줌 (읽는 단어 표시용) */
-export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (f: number) => void): void {
+/** onStart: 소리가 실제로 나오기 시작한 순간 (준비 중 표시를 끄는 데 사용) */
+export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (f: number) => void, onStart?: () => void): void {
   const t = text.trim();
   if (!t) {
     onEnd?.();
@@ -293,19 +338,20 @@ export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (
   const mine = ++ticket;
   stopCurrent();
   if (canDeviceSpeak()) window.speechSynthesis.cancel();
+  unlockAudio(); // 누른 순간에 재생기를 깨워 둠 (모바일 자동 재생 차단 대비)
 
   const engine = getTtsEngine();
   void (async () => {
     if (engine === 'local') {
-      if (await localSpeak(t, rate, mine, onEnd, onProgress)) return;
+      if (await localSpeak(t, rate, mine, onEnd, onProgress, onStart)) return;
       if (mine !== ticket) return;
       if (lastTtsError) notifyFallback(`오픈소스 음성 오류: ${lastTtsError}`);
-      deviceSpeak(t, rate, mine, onEnd, onProgress);
+      deviceSpeak(t, rate, mine, onEnd, onProgress, onStart);
       return;
     }
     if (engine === 'device') {
       notifyFallback('설정에서 음성 방식이 "기기 음성"으로 되어 있어요.');
-      deviceSpeak(t, rate, mine, onEnd, onProgress);
+      deviceSpeak(t, rate, mine, onEnd, onProgress, onStart);
       return;
     }
 
@@ -313,10 +359,10 @@ export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (
     if (geminiFailures >= 2 && Date.now() - lastGeminiFailureAt > FAILURE_COOLDOWN_MS) geminiFailures = 0;
     if (!getGeminiKeys().length || geminiFailures >= 2) {
       const why = !getGeminiKeys().length ? 'Gemini 키가 없어요.' : `Gemini 음성이 계속 실패했어요. ${lastTtsError}`;
-      if (await localSpeak(t, rate, mine, onEnd, onProgress)) return;
+      if (await localSpeak(t, rate, mine, onEnd, onProgress, onStart)) return;
       if (mine !== ticket) return;
       notifyFallback(why);
-      deviceSpeak(t, rate, mine, onEnd, onProgress);
+      deviceSpeak(t, rate, mine, onEnd, onProgress, onStart);
       return;
     }
     try {
@@ -324,17 +370,17 @@ export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (
       if (mine !== ticket) return;
       geminiFailures = 0;
       lastTtsError = '';
-      await playBlob(blob, rate, mine, onEnd, onProgress);
+      await playBlob(blob, rate, mine, onEnd, onProgress, onStart);
     } catch (e) {
       if (mine !== ticket) return;
       geminiFailures++;
       lastGeminiFailureAt = Date.now();
       lastTtsError = e instanceof Error ? e.message : String(e);
       // Gemini가 안 되면 오픈소스 음성, 그것도 안 되면 기기 음성
-      if (await localSpeak(t, rate, mine, onEnd, onProgress)) return;
+      if (await localSpeak(t, rate, mine, onEnd, onProgress, onStart)) return;
       if (mine !== ticket) return;
       notifyFallback(`Gemini 음성 오류: ${lastTtsError}`);
-      deviceSpeak(t, rate, mine, onEnd, onProgress);
+      deviceSpeak(t, rate, mine, onEnd, onProgress, onStart);
     }
   })();
 }
@@ -361,9 +407,11 @@ export function prefetchSpeech(texts: string[]): void {
   const engine = getTtsEngine();
   if (engine === 'device') return;
   if (engine === 'gemini' && (!getGeminiKeys().length || geminiFailures >= 2)) return;
+  // 핸드폰: 오픈소스 음성은 누를 때만 만들고, Gemini는 지금 문장 하나만 미리 만듦 (배터리·한도 절약)
+  if (isMobileDevice() && engine === 'local') return;
   const run = ++prefetchRun;
   void (async () => {
-    for (const t of texts.slice(0, 2)) {
+    for (const t of texts.slice(0, isMobileDevice() ? 1 : 2)) {
       if (run !== prefetchRun) return; // 더 새로운 미리 만들기가 시작되면 중단
       const x = t.trim();
       if (!x) continue;

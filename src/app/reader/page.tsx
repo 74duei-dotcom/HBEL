@@ -308,17 +308,20 @@ function ReaderInner() {
   };
 
   const [speakTok, setSpeakTok] = useState(-1);
+  const [preparing, setPreparing] = useState(false); // 누른 뒤 소리가 나기 전까지
 
   const playSentence = (i: number) => {
     const s = sentences[i];
     if (!s) return;
     setCur(i);
     setPlaying(true);
+    setPreparing(true);
     // 읽는 위치(글자 비율) → 지금 읽고 있는 단어 번호로 바꿔 표시
     const toks = tokenize(s);
     const total = toks.reduce((n, t) => n + t.length + 1, 0);
     const done = () => {
       setPlaying(false);
+      setPreparing(false);
       setSpeakTok(-1);
     };
     setSpeakTok(0);
@@ -334,7 +337,7 @@ function ReaderInner() {
         }
       }
       setSpeakTok(idx);
-    });
+    }, () => setPreparing(false));
   };
 
   const togglePlay = () => {
@@ -352,6 +355,7 @@ function ReaderInner() {
     if (playing) {
       stopSpeaking();
       setPlaying(false);
+      setPreparing(false);
       setSpeakTok(-1);
     } else playSentence(cur);
   };
@@ -584,8 +588,8 @@ function ReaderInner() {
             <button className="icon-btn" aria-label="이전 문장" onClick={() => setCur((c) => Math.max(0, c - 1))} disabled={cur === 0}>
               <Icon name="back" />
             </button>
-            <button className="icon-btn" style={{ background: 'var(--teal)', color: '#fff', width: 48, height: 48 }} aria-label={playing ? '멈춤' : '이 문장 듣기'} onClick={togglePlay} disabled={!canSpeak()}>
-              <Icon name={playing ? 'pause' : 'play'} filled size={20} />
+            <button className="icon-btn" style={{ background: 'var(--teal)', color: '#fff', width: 48, height: 48 }} aria-label={preparing ? '소리 준비 중' : playing ? '멈춤' : '이 문장 듣기'} onClick={togglePlay} disabled={!canSpeak()}>
+              {preparing ? <span className="spin" aria-hidden="true" /> : <Icon name={playing ? 'pause' : 'play'} filled size={20} />}
             </button>
             <button className="icon-btn" aria-label="다음 문장" onClick={() => setCur((c) => Math.min(sentences.length - 1, c + 1))} disabled={cur >= sentences.length - 1}>
               <Icon name="next" />
