@@ -50,8 +50,9 @@ export default function SettingsPage() {
   };
 
   const [label, tone] = SYNC_LABEL[sync] ?? ['', 'warn'];
-  const switches: { k: 'hk' | 'tr' | 'focus'; label: string; help: string }[] = [
+  const switches: { k: 'hk' | 'tr' | 'ph' | 'focus'; label: string; help: string }[] = [
     { k: 'hk', label: '한글 발음', help: '영어 단어 바로 아래에 표시' },
+    { k: 'ph', label: '끊어 읽기', help: '쉬어 읽는 자리에 / 표시' },
     { k: 'tr', label: '번역', help: '영어 문장 아래에 한국어 뜻' },
     { k: 'focus', label: '읽는 문장에만 표시', help: '긴 글에서 발음·번역을 현재 문장에만 (AI 사용량도 줄어요)' },
   ];

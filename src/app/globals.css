@@ -134,6 +134,9 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .tok-en.active { background: var(--teal); color: #fff; box-shadow: none; }
 .tok-hk { font-family: var(--font-ui); font-size: var(--fs-hk); line-height: 1.3; color: var(--amber-ink); white-space: nowrap; min-height: 1em; }
 .tok-hk b { text-decoration: underline; }
+.tok { position: relative; }
+.tok.br { margin-right: 12px; }
+.tok-br { position: absolute; right: -12px; top: 0; font-family: var(--font-ui); font-weight: 700; color: var(--teal); line-height: 1.4; pointer-events: none; }
 .tr { margin-top: 8px; font-family: var(--font-ui); font-size: 14px; line-height: 1.55; color: var(--blue-ink); background: var(--blue-soft); border-radius: 8px; padding: 6px 10px; }
 .skeleton { display: block; height: 8px; border-radius: 4px; background: #dde3e8; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.5; } }

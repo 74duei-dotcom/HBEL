@@ -28,7 +28,10 @@ export function AaMenu({ hasTr = true, hasFocus = false }: { hasTr?: boolean; ha
     };
   }, [open]);
 
-  const rows: { key: 'hk' | 'tr' | 'focus'; label: string; help: string }[] = [{ key: 'hk', label: '한글 발음', help: '영어 단어 바로 아래' }];
+  const rows: { key: 'hk' | 'tr' | 'ph' | 'focus'; label: string; help: string }[] = [
+    { key: 'hk', label: '한글 발음', help: '영어 단어 바로 아래' },
+    { key: 'ph', label: '끊어 읽기', help: '쉬어 읽는 자리에 / 표시' },
+  ];
   if (hasTr) rows.push({ key: 'tr', label: '번역', help: '문장 아래 한국어 뜻' });
   if (hasFocus) rows.push({ key: 'focus', label: '읽는 문장에만', help: '긴 글은 지금 문장만 표시' });
 

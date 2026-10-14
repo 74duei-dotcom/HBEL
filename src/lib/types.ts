@@ -35,6 +35,8 @@ export interface SentenceAnalysis {
   translation: string;
   /** 영어 단어(공백 기준) 순서와 1:1로 맞춘 한글 발음. 강세 음절은 *로 감쌈 예) "익스*텐*션" */
   hk: string[];
+  /** 끊어 읽는 자리: 이 번호의 단어 바로 뒤에서 잠깐 쉼 (단어 순서 0부터). 없으면 아직 분석 전 */
+  br?: number[];
 }
 
 /** 단어 하나에 대한 사전 결과 */
@@ -150,6 +152,7 @@ export type FontSize = 's' | 'm' | 'l';
 export interface ViewPrefs {
   hk: boolean; // 한글 발음
   tr: boolean; // 번역
+  ph: boolean; // 끊어 읽기 표시
   focus: boolean; // 읽는 문장에만 표시
   fontSize: FontSize;
   newPerDay: number;

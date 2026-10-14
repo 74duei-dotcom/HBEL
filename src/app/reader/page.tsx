@@ -174,7 +174,10 @@ function ReaderInner() {
       if (!doc || !cacheRef.current) return;
       const todo = indices.filter((i) => {
         const k = keyOf(page, i);
-        return !cacheRef.current!.sentences[k] && !inflight.current.has(k) && sentences[i];
+        const old = cacheRef.current!.sentences[k];
+        // 끊어 읽기 정보가 없는 예전 분석은 다시 받아옴
+        const need = !old || (prefs.ph && old.br === undefined);
+        return need && !inflight.current.has(k) && sentences[i];
       });
       const parts: number[][] = [];
       for (let s = 0; s < todo.length; s += CHUNK) parts.push(todo.slice(s, s + CHUNK));
@@ -217,17 +220,17 @@ function ReaderInner() {
         })
       );
     },
-    [doc, page, sentences, glossary, commitCache]
+    [doc, page, sentences, glossary, commitCache, prefs.ph]
   );
 
   // 보이는 쪽(또는 읽는 문장)의 분석을 자동으로 준비
   useEffect(() => {
     if (!cache || !sentences.length) return;
-    if (!prefs.hk && !prefs.tr) return;
+    if (!prefs.hk && !prefs.tr && !prefs.ph) return;
     const idx = prefs.focus ? [cur, cur + 1].filter((i) => i < sentences.length) : sentences.map((_, i) => i);
     void analyze(idx);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cache !== null, page, cur, prefs.hk, prefs.tr, prefs.focus, sentences]);
+  }, [cache !== null, page, cur, prefs.hk, prefs.tr, prefs.ph, prefs.focus, sentences]);
 
   const goPage = (p: number) => {
     if (!content || !doc) return;
@@ -435,6 +438,7 @@ function ReaderInner() {
                 const show = !prefs.focus || i === cur;
                 const showHk = prefs.hk && show;
                 const showTr = prefs.tr && show;
+                const brSet = new Set(prefs.ph && show ? (a?.br ?? []) : []);
                 const busy = busyKeys.has(k);
                 const err = errKeys[k];
                 const tokens = tokenize(s);
@@ -450,7 +454,7 @@ function ReaderInner() {
                         const w = cleanWord(t).toLowerCase();
                         const active = target && target.sentence === s && cleanWord(target.word).toLowerCase() === w;
                         return (
-                          <span className="tok" key={ti}>
+                          <span className={`tok${brSet.has(ti) ? " br" : ""}`} key={ti}>
                             <button
                               className={`tok-en${learningSet.has(w) ? ' learning' : ''}${active ? ' active' : ''}`}
                               onClick={() => {
@@ -463,6 +467,11 @@ function ReaderInner() {
                             {showHk && (
                               <span className="tok-hk">
                                 <Hangul text={a?.hk[ti] ?? ''} />
+                              </span>
+                            )}
+                            {brSet.has(ti) && (
+                              <span className="tok-br" aria-hidden="true">
+                                /
                               </span>
                             )}
                           </span>

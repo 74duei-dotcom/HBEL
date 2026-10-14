@@ -17,6 +17,7 @@ const LOCAL_KEY = 'appdata';
 export const DEFAULT_PREFS: ViewPrefs = {
   hk: true,
   tr: true,
+  ph: true,
   focus: false,
   fontSize: 'm',
   newPerDay: 10,

@@ -107,19 +107,24 @@ export async function analyzeSentences(sentences: string[], kind: DocKind, gloss
     .join('\n');
   const system = `You help a Korean reader study ${KIND_LABEL[kind]}.
 For each item you get the sentence as an array of tokens (split by spaces, punctuation attached).
-Return ONLY a JSON array: [{"i": number, "translation": string, "hk": string[]}]
+Return ONLY a JSON array: [{"i": number, "translation": string, "hk": string[], "br": number[]}]
 - "translation": natural, accurate Korean translation of the whole sentence. Use standard Korean medical terminology.
 - "hk": Korean pronunciation for EACH token, same length and order as tokens. Reflect connected speech (linking) across word boundaries,
   e.g. tokens ["a","common","cause","of"] -> ["어","*카*먼","*커*","저브"]; ["look","at"] -> ["*루*","캣"]. Never include punctuation in hk.
+- "br": phrase-break (pause) positions for reading aloud, as 0-based token indices; a pause comes right AFTER that token. Break between meaningful thought groups (about 3-7 words each): before prepositional phrases, relative/subordinate clauses and conjunctions, and after commas or a long subject. Never put a break after the last token. Short sentences may have [].
 ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLines}` : ''}`;
   const user = JSON.stringify(items);
   const text = await callAI(system, user, Math.min(4000, 300 + sentences.join(' ').length * 3), { timeoutMs: 60000, priority: 'bg' });
-  const arr = extractJson<{ i: number; translation: string; hk: string[] }[]>(text);
+  const arr = extractJson<{ i: number; translation: string; hk: string[]; br?: number[] }[]>(text);
   return items.map((it) => {
     const found = Array.isArray(arr) ? arr.find((a) => a.i === it.i) : undefined;
     const hk = Array.isArray(found?.hk) ? found!.hk.map((h) => String(h ?? '')) : [];
     // 단어 개수가 안 맞으면 길이를 맞춰 화면이 깨지지 않게 함
     const fixed = it.tokens.map((_, k) => hk[k] ?? '');
-    return { translation: String(found?.translation ?? ''), hk: fixed };
+    const last = it.tokens.length - 1;
+    const br = Array.isArray(found?.br)
+      ? [...new Set(found!.br.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < last))].sort((a, b) => a - b)
+      : [];
+    return { translation: String(found?.translation ?? ''), hk: fixed, br };
   });
 }
