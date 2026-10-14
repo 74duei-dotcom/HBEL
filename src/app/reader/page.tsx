@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { activeVocab, loadAnalysis, loadDocContent, removeDocFiles, saveAnalysis, useStore } from '@/lib/store';
-import { analyzeSentences } from '@/lib/claude';
+import { analyzeSentences, HANGUL_VERSION } from '@/lib/claude';
 import { driveViewUrl } from '@/lib/drive';
 import { createYouTubePlayer, formatTime, loadVideo, saveVideo, type YTPlayer } from '@/lib/video';
 import { speak, stopSpeaking, canSpeak } from '@/lib/speech';
@@ -177,7 +177,7 @@ function ReaderInner() {
         const old = cacheRef.current!.sentences[k];
         // 끊어 읽기 정보가 없는 예전 분석은 다시 받아옴
         // 번역·한글 발음이 비어 저장된 예전 분석도 다시 받아옴
-        const need = !old || !old.translation || !old.hk.some((h) => h.trim()) || (prefs.ph && old.br === undefined);
+        const need = !old || (old.hv ?? 0) < HANGUL_VERSION || !old.translation || !old.hk.some((h) => h.trim()) || (prefs.ph && old.br === undefined);
         return need && !inflight.current.has(k) && sentences[i];
       });
       const parts: number[][] = [];

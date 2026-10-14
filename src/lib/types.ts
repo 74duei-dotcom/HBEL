@@ -37,6 +37,8 @@ export interface SentenceAnalysis {
   hk: string[];
   /** 끊어 읽는 자리: 이 번호의 단어 바로 뒤에서 잠깐 쉼 (단어 순서 0부터). 없으면 아직 분석 전 */
   br?: number[];
+  /** 어떤 버전의 발음 규칙으로 만들었는지 (없으면 옛 규칙) */
+  hv?: number;
 }
 
 /** 단어 하나에 대한 사전 결과 */
@@ -59,6 +61,8 @@ export interface WordInfo {
   isMedical: boolean;
   etymology: string;
   contextNote: string;
+  /** 어떤 버전의 발음 규칙으로 만들었는지 (없으면 옛 규칙) */
+  hv?: number;
 }
 
 /** 문장 안에서 찾은 문법 항목 하나 */

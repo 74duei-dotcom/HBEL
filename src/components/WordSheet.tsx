@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
-import { lookupWord } from '@/lib/claude';
+import { lookupWord, HANGUL_VERSION } from '@/lib/claude';
 import { newCard } from '@/lib/srs';
 import { speak } from '@/lib/speech';
 import type { DocKind, VocabItem, WordInfo, WordSource } from '@/lib/types';
@@ -36,6 +36,8 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
   const [saved, setSaved] = useState<'' | 'learning' | 'known'>('');
   const vocabRef = useRef(data.vocab);
   vocabRef.current = data.vocab;
+  const upsertRef = useRef(upsertVocab);
+  upsertRef.current = upsertVocab;
 
   const reqId = useRef(0);
 
@@ -47,7 +49,9 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
     setSaved('');
     // 문서 캐시 → 내 단어장(음절 설명까지 있는 것) 순으로 찾아 AI를 부르지 않음
     const mine = vocabRef.current[key];
-    const hit = cached(key) ?? (mine && !mine.deleted && mine.syllables?.length ? mine : undefined);
+    // 예전 발음 규칙으로 저장된 것은 새 규칙으로 다시 찾음
+    const fresh = (w?: WordInfo) => (w && (w.hv ?? 0) >= HANGUL_VERSION ? w : undefined);
+    const hit = fresh(cached(key)) ?? (mine && !mine.deleted && mine.syllables?.length ? fresh(mine) : undefined);
     if (hit) {
       setInfo(hit);
       return;
@@ -57,6 +61,9 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
     try {
       const res = await lookupWord(cleanWord(target.word), target.sentence, kind);
       onCache(res); // 늦게 도착해도 캐시에는 저장
+      // 단어장에 이미 있는 단어는 발음 정보만 새 규칙으로 갱신 (뜻·복습 기록은 그대로)
+      const old = vocabRef.current[res.lemma.toLowerCase()];
+      if (old && !old.deleted) upsertRef.current({ ...old, syllables: res.syllables, hangul: res.hangul, ipa: res.ipa, hv: res.hv, updatedAt: nowIso() });
       if (my !== reqId.current) return;
       setInfo(res);
     } catch (e) {

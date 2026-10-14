@@ -38,6 +38,9 @@ export const KIND_LABEL: Record<DocKind, string> = {
   lecture: 'a conference lecture transcript',
 };
 
+/** 발음 규칙을 크게 바꿀 때마다 올림 → 이보다 낮은 버전으로 저장된 단어·문장은 다시 분석함 */
+export const HANGUL_VERSION = 2;
+
 const HANGUL_RULES = `Korean pronunciation guide ("hangul") rules:
 - Write how a native American English speaker actually says it, in Hangul.
 - Wrap ONLY the primary-stressed syllable in asterisks, e.g. "익스*텐*션", "스판덜로리스*씨*시스", "*럼*바".
@@ -102,6 +105,7 @@ ${HANGUL_RULES}`;
     isMedical: Boolean(j.isMedical),
     etymology: String(j.etymology ?? ''),
     contextNote: String(j.contextNote ?? ''),
+    hv: HANGUL_VERSION,
   };
 }
 
@@ -136,7 +140,7 @@ ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLi
     const br = Array.isArray(found?.br)
       ? [...new Set(found!.br.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < last))].sort((a, b) => a - b)
       : [];
-    return { translation: String(found?.translation ?? '').trim(), hk: fixed, br };
+    return { translation: String(found?.translation ?? '').trim(), hk: fixed, br, hv: HANGUL_VERSION };
   });
 
   // 번역이나 한글 발음이 빠진 문장은 그 문장만 한 번 더 요청하고, 그래도 비면 오류로 알려 "다시 시도"가 뜨게 함 (빈 번역이 저장되지 않도록)
