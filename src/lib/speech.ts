@@ -21,7 +21,7 @@ const AUDIO_VER = 'v2';
 /** 설정에서 고른 음성 방식. 고른 적 없으면 Gemini 키가 있을 때 Gemini */
 export function getTtsEngine(): TtsEngine {
   const v = lsGet(LS_KEYS.ttsEngine);
-  if (v === 'local' || v === 'gemini' || v === 'device') return v;
+  if (v === 'local' || v === 'gemini') return v; // 예전에 고른 '기기 음성'은 더 이상 선택지가 아니므로 기본값 사용
   return 'local'; // 기본: 키·한도가 필요 없는 오픈소스 음성
 }
 
