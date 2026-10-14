@@ -176,7 +176,8 @@ function ReaderInner() {
         const k = keyOf(page, i);
         const old = cacheRef.current!.sentences[k];
         // 끊어 읽기 정보가 없는 예전 분석은 다시 받아옴
-        const need = !old || (prefs.ph && old.br === undefined);
+        // 번역이 비어 저장된 예전 분석도 다시 받아옴
+        const need = !old || !old.translation || (prefs.ph && old.br === undefined);
         return need && !inflight.current.has(k) && sentences[i];
       });
       const parts: number[][] = [];

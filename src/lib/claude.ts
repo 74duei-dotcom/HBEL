@@ -99,7 +99,7 @@ ${HANGUL_RULES}`;
  * 여러 문장을 한 번에 분석: 번역 + 단어별 한글 발음
  * glossary: 단어장에 저장된 의학용어 뜻 - 번역할 때 같은 한국어 용어를 쓰도록 전달
  */
-export async function analyzeSentences(sentences: string[], kind: DocKind, glossary: Record<string, string>): Promise<SentenceAnalysis[]> {
+export async function analyzeSentences(sentences: string[], kind: DocKind, glossary: Record<string, string>, retry = false): Promise<SentenceAnalysis[]> {
   const items = sentences.map((s, i) => ({ i, tokens: tokenize(s) }));
   const glossLines = Object.entries(glossary)
     .slice(0, 40)
@@ -116,8 +116,9 @@ ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLi
   const user = JSON.stringify(items);
   const text = await callAI(system, user, Math.min(4000, 300 + sentences.join(' ').length * 3), { timeoutMs: 60000, priority: 'bg' });
   const arr = extractJson<{ i: number; translation: string; hk: string[]; br?: number[] }[]>(text);
-  return items.map((it) => {
-    const found = Array.isArray(arr) ? arr.find((a) => a.i === it.i) : undefined;
+  const result: SentenceAnalysis[] = items.map((it, pos) => {
+    // i 번호가 맞는 항목을 찾고, 없으면 같은 순서의 항목을 사용
+    const found = Array.isArray(arr) ? (arr.find((a) => Number(a?.i) === it.i) ?? (arr.length === items.length ? arr[pos] : undefined)) : undefined;
     const hk = Array.isArray(found?.hk) ? found!.hk.map((h) => String(h ?? '')) : [];
     // 단어 개수가 안 맞으면 길이를 맞춰 화면이 깨지지 않게 함
     const fixed = it.tokens.map((_, k) => hk[k] ?? '');
@@ -125,6 +126,23 @@ ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLi
     const br = Array.isArray(found?.br)
       ? [...new Set(found!.br.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < last))].sort((a, b) => a - b)
       : [];
-    return { translation: String(found?.translation ?? ''), hk: fixed, br };
+    return { translation: String(found?.translation ?? '').trim(), hk: fixed, br };
   });
+
+  // 번역이 빠진 문장은 그 문장만 한 번 더 요청하고, 그래도 비면 오류로 알려 "다시 시도"가 뜨게 함 (빈 번역이 저장되지 않도록)
+  const missing = result.map((r, k) => (r.translation ? -1 : k)).filter((k) => k >= 0);
+  if (missing.length) {
+    if (!retry) {
+      const again = await analyzeSentences(
+        missing.map((k) => sentences[k]),
+        kind,
+        glossary,
+        true
+      );
+      missing.forEach((k, n) => (result[k] = again[n]));
+    } else {
+      throw new AIError('bad-response', getProvider(), 'AI가 일부 문장의 번역을 빠뜨렸어요. 다시 시도해 주세요.');
+    }
+  }
+  return result;
 }
