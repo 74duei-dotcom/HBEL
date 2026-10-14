@@ -8,8 +8,9 @@ import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { GEMINI_TTS_MODEL, LS_KEYS } from './config';
 import { getGeminiKeys } from './ai';
 import { lsGet, lsSet } from './util';
+import { generateLocal, hasLocalAudio, isLocalReady, loadLocalModel } from './localTts';
 
-export type TtsEngine = 'gemini' | 'device';
+export type TtsEngine = 'local' | 'gemini' | 'device';
 
 const VOICE_NAME = 'Kore';
 /** 원어민처럼 또렷하고 자연스러운 미국 발음으로 읽도록 하는 지시문 (소리로 읽히지 않고 말투만 정함) */
@@ -20,8 +21,8 @@ const AUDIO_VER = 'v2';
 /** 설정에서 고른 음성 방식. 고른 적 없으면 Gemini 키가 있을 때 Gemini */
 export function getTtsEngine(): TtsEngine {
   const v = lsGet(LS_KEYS.ttsEngine);
-  if (v === 'gemini' || v === 'device') return v;
-  return getGeminiKeys().length ? 'gemini' : 'device';
+  if (v === 'local' || v === 'gemini' || v === 'device') return v;
+  return 'local'; // 기본: 키·한도가 필요 없는 오픈소스 음성
 }
 
 export function setTtsEngine(e: TtsEngine): void {
@@ -93,9 +94,6 @@ let geminiFailures = 0;
 let lastGeminiFailureAt = 0;
 const FAILURE_COOLDOWN_MS = 25_000; // 25초 후에는 일시 실패 카운트를 리셋하여 다시 시도
 const memory = new Map<string, Blob>();
-/** 이 글자 수 이하(단어 수준)면 느릴 때 기기 음성으로 먼저 읽음 */
-const SHORT_TEXT_LEN = 40;
-const INSTANT_WAIT_MS = 350;
 
 /** 마지막 Gemini 음성 오류 (설정 화면에서 보여줌) */
 export let lastTtsError = '';
@@ -238,6 +236,43 @@ export function canSpeak(): boolean {
   return canDeviceSpeak() || getGeminiKeys().length > 0;
 }
 
+/** 만들어 둔 소리를 재생 */
+async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => void): Promise<void> {
+  if (mine !== ticket) return; // 그 사이 다른 소리를 요청했거나 멈춤
+  const url = URL.createObjectURL(blob);
+  const a = new Audio(url);
+  a.playbackRate = rate;
+  const done = () => {
+    if (current === a) {
+      URL.revokeObjectURL(url);
+      current = null;
+    }
+    if (mine === ticket) onEnd?.();
+  };
+  a.onended = done;
+  a.onerror = done;
+  current = a;
+  await a.play();
+}
+
+/** 오픈소스 음성으로 읽기. 모델이 아직 준비 전이면 기기 음성으로 먼저 읽고 뒤에서 모델을 준비. 성공하면 true */
+async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => void): Promise<boolean> {
+  try {
+    if (!isLocalReady() && !(await hasLocalAudio(t))) {
+      if (mine !== ticket) return true;
+      void loadLocalModel().catch(() => undefined);
+      notifyFallback('오픈소스 음성 모델을 처음 한 번 내려받는 중이에요(약 90MB). 준비되면 자동으로 자연스러운 소리로 바뀌어요.');
+      return false;
+    }
+    const blob = await generateLocal(t);
+    await playBlob(blob, rate, mine, onEnd);
+    return true;
+  } catch (e) {
+    lastTtsError = e instanceof Error ? e.message : String(e);
+    return false;
+  }
+}
+
 export function speak(text: string, rate = 1, onEnd?: () => void): void {
   const t = text.trim();
   if (!t) {
@@ -248,69 +283,45 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
   stopCurrent();
   if (canDeviceSpeak()) window.speechSynthesis.cancel();
 
-  // 쿨다운(25초)이 지났으면 이전 실패 카운트를 리셋하여 Gemini 음성을 다시 시도
-  if (geminiFailures >= 2 && Date.now() - lastGeminiFailureAt > FAILURE_COOLDOWN_MS) {
-    geminiFailures = 0;
-  }
-
-  if (getTtsEngine() !== 'gemini' || !getGeminiKeys().length || geminiFailures >= 2) {
-    notifyFallback(
-      getTtsEngine() !== 'gemini'
-        ? '설정에서 음성 방식이 "기기 음성"으로 되어 있어요.'
-        : !getGeminiKeys().length
-          ? 'Gemini 키가 없어요.'
-          : `Gemini 음성이 계속 실패했어요. ${lastTtsError}`
-    );
-    deviceSpeak(t, rate, mine, onEnd);
-    return;
-  }
+  const engine = getTtsEngine();
   void (async () => {
-    let usedDevice = false;
+    if (engine === 'local') {
+      if (await localSpeak(t, rate, mine, onEnd)) return;
+      if (mine !== ticket) return;
+      if (lastTtsError) notifyFallback(`오픈소스 음성 오류: ${lastTtsError}`);
+      deviceSpeak(t, rate, mine, onEnd);
+      return;
+    }
+    if (engine === 'device') {
+      notifyFallback('설정에서 음성 방식이 "기기 음성"으로 되어 있어요.');
+      deviceSpeak(t, rate, mine, onEnd);
+      return;
+    }
+
+    // Gemini 음성: 쿨다운(25초)이 지났으면 이전 실패 카운트를 리셋하여 다시 시도
+    if (geminiFailures >= 2 && Date.now() - lastGeminiFailureAt > FAILURE_COOLDOWN_MS) geminiFailures = 0;
+    if (!getGeminiKeys().length || geminiFailures >= 2) {
+      const why = !getGeminiKeys().length ? 'Gemini 키가 없어요.' : `Gemini 음성이 계속 실패했어요. ${lastTtsError}`;
+      if (await localSpeak(t, rate, mine, onEnd)) return;
+      if (mine !== ticket) return;
+      notifyFallback(why);
+      deviceSpeak(t, rate, mine, onEnd);
+      return;
+    }
     try {
-      const pending = getGeminiAudio(t);
-      let blob: Blob;
-      if (t.length <= SHORT_TEXT_LEN && canDeviceSpeak()) {
-        // 짧은 단어는 Gemini 소리가 0.35초 안에 안 오면 기기 음성으로 바로 읽고,
-        // Gemini 소리는 뒤에서 저장해 두었다가 다음번부터 즉시 재생
-        const quick = await Promise.race([
-          pending,
-          new Promise<null>((r) => setTimeout(() => r(null), INSTANT_WAIT_MS)),
-        ]);
-        if (quick) {
-          blob = quick;
-        } else {
-          if (mine !== ticket) return;
-          usedDevice = true;
-          notifyFallback('Gemini 소리가 늦어서 먼저 기기 음성으로 읽었어요. 다음부터는 저장된 소리로 나와요.');
-          deviceSpeak(t, rate, mine, onEnd);
-          void pending.then(() => { geminiFailures = 0; }, () => {});
-          return;
-        }
-      } else {
-        blob = await pending;
-      }
-      if (mine !== ticket) return; // 그 사이 다른 소리를 요청했거나 멈춤
+      const blob = await getGeminiAudio(t);
+      if (mine !== ticket) return;
       geminiFailures = 0;
       lastTtsError = '';
-      const url = URL.createObjectURL(blob);
-      const a = new Audio(url);
-      a.playbackRate = rate;
-      const done = () => {
-        if (current === a) {
-          URL.revokeObjectURL(url);
-          current = null;
-        }
-        if (mine === ticket) onEnd?.();
-      };
-      a.onended = done;
-      a.onerror = done;
-      current = a;
-      await a.play();
+      await playBlob(blob, rate, mine, onEnd);
     } catch (e) {
-      if (mine !== ticket || usedDevice) return;
+      if (mine !== ticket) return;
       geminiFailures++;
       lastGeminiFailureAt = Date.now();
       lastTtsError = e instanceof Error ? e.message : String(e);
+      // Gemini가 안 되면 오픈소스 음성, 그것도 안 되면 기기 음성
+      if (await localSpeak(t, rate, mine, onEnd)) return;
+      if (mine !== ticket) return;
       notifyFallback(`Gemini 음성 오류: ${lastTtsError}`);
       deviceSpeak(t, rate, mine, onEnd);
     }
@@ -336,18 +347,31 @@ export async function testGeminiVoice(): Promise<void> {
 /** 곧 들을 문장의 소리를 미리 만들어 저장 → 재생 버튼을 누르면 바로 시작 (하나씩 차례로, 실패는 조용히 무시) */
 let prefetchRun = 0;
 export function prefetchSpeech(texts: string[]): void {
-  if (getTtsEngine() !== 'gemini' || !getGeminiKeys().length || geminiFailures >= 2) return;
+  const engine = getTtsEngine();
+  if (engine === 'device') return;
+  if (engine === 'gemini' && (!getGeminiKeys().length || geminiFailures >= 2)) return;
   const run = ++prefetchRun;
   void (async () => {
-    for (const t of texts) {
+    for (const t of texts.slice(0, 2)) {
       if (run !== prefetchRun) return; // 더 새로운 미리 만들기가 시작되면 중단
       const x = t.trim();
       if (!x) continue;
       try {
-        await getGeminiAudio(x);
+        if (engine === 'local') await generateLocal(x);
+        else await getGeminiAudio(x);
       } catch {
         return;
       }
     }
   })();
+}
+
+/** 설정 화면의 "소리 확인": 오픈소스 음성 (처음에는 모델을 내려받느라 시간이 걸림) */
+export async function testLocalVoice(): Promise<void> {
+  await loadLocalModel();
+  const blob = await generateLocal('Hello. This is a test of the voice.');
+  const url = URL.createObjectURL(blob);
+  const a = new Audio(url);
+  a.onended = () => URL.revokeObjectURL(url);
+  await a.play();
 }
