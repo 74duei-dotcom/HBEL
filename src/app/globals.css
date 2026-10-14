@@ -139,6 +139,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .tok { display: inline-flex; flex-direction: column; align-items: center; }
 .tok-en { border: none; background: transparent; padding: 0 2px; margin: 0; font: inherit; color: inherit; line-height: inherit; border-radius: 4px; }
 .tok-en.learning { box-shadow: inset 0 -2px 0 var(--amber-line); }
+.tok-en.speaking { background: var(--amber-soft); box-shadow: 0 0 0 2px var(--amber-line); }
 .tok-en.active { background: var(--teal); color: #fff; box-shadow: none; }
 .tok-hk { font-family: var(--font-ui); font-size: var(--fs-hk); line-height: 1.3; color: var(--amber-ink); white-space: nowrap; min-height: 1em; }
 .tok-hk b { text-decoration: underline; }

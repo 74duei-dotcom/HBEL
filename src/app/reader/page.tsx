@@ -307,12 +307,34 @@ function ReaderInner() {
     }
   };
 
+  const [speakTok, setSpeakTok] = useState(-1);
+
   const playSentence = (i: number) => {
     const s = sentences[i];
     if (!s) return;
     setCur(i);
     setPlaying(true);
-    speak(s, speed, () => setPlaying(false));
+    // 읽는 위치(글자 비율) → 지금 읽고 있는 단어 번호로 바꿔 표시
+    const toks = tokenize(s);
+    const total = toks.reduce((n, t) => n + t.length + 1, 0);
+    const done = () => {
+      setPlaying(false);
+      setSpeakTok(-1);
+    };
+    setSpeakTok(0);
+    speak(s, speed, done, (f) => {
+      const pos = f * total;
+      let acc = 0;
+      let idx = toks.length - 1;
+      for (let k = 0; k < toks.length; k++) {
+        acc += toks[k].length + 1;
+        if (pos < acc) {
+          idx = k;
+          break;
+        }
+      }
+      setSpeakTok(idx);
+    });
   };
 
   const togglePlay = () => {
@@ -330,6 +352,7 @@ function ReaderInner() {
     if (playing) {
       stopSpeaking();
       setPlaying(false);
+      setSpeakTok(-1);
     } else playSentence(cur);
   };
 
@@ -477,7 +500,7 @@ function ReaderInner() {
                         return (
                           <span className={`tok${brSet.has(ti) ? " br" : ""}`} key={ti}>
                             <button
-                              className={`tok-en${learningSet.has(w) ? ' learning' : ''}${active ? ' active' : ''}`}
+                              className={`tok-en${learningSet.has(w) ? ' learning' : ''}${active ? ' active' : ''}${playing && i === cur && ti === speakTok ? ' speaking' : ''}`}
                               onClick={() => {
                                 setCur(i);
                                 if (w) setTarget({ word: t, sentence: s, page });

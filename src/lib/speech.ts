@@ -56,7 +56,7 @@ function notifyFallback(reason: string): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(TTS_FALLBACK_EVENT, { detail: reason }));
 }
 
-function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => void): void {
+function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void): void {
   if (!canDeviceSpeak()) {
     onEnd?.();
     return;
@@ -67,6 +67,7 @@ function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => voi
   u.rate = rate;
   const v = pickVoice();
   if (v) u.voice = v;
+  if (onProgress) u.onboundary = (e) => mine === ticket && onProgress(e.charIndex / Math.max(1, text.length));
   if (onEnd) {
     // 취소된 이전 낭독의 종료 알림이 새 낭독의 상태를 건드리지 않게, 최신 요청일 때만 알림
     const done = () => {
@@ -237,12 +238,20 @@ export function canSpeak(): boolean {
 }
 
 /** 만들어 둔 소리를 재생 */
-async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => void): Promise<void> {
+async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void): Promise<void> {
   if (mine !== ticket) return; // 그 사이 다른 소리를 요청했거나 멈춤
   const url = URL.createObjectURL(blob);
   const a = new Audio(url);
   a.playbackRate = rate;
+  // 재생 위치(시간 비율)를 알려 줌 → 읽는 단어 표시에 사용
+  let raf = 0;
+  const tick = () => {
+    if (mine !== ticket || current !== a) return;
+    if (onProgress && a.duration > 0) onProgress(a.currentTime / a.duration);
+    raf = requestAnimationFrame(tick);
+  };
   const done = () => {
+    cancelAnimationFrame(raf);
     if (current === a) {
       URL.revokeObjectURL(url);
       current = null;
@@ -253,10 +262,11 @@ async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => vo
   a.onerror = done;
   current = a;
   await a.play();
+  if (onProgress) raf = requestAnimationFrame(tick);
 }
 
 /** 오픈소스 음성으로 읽기. 모델이 아직 준비 전이면 기기 음성으로 먼저 읽고 뒤에서 모델을 준비. 성공하면 true */
-async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => void): Promise<boolean> {
+async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void): Promise<boolean> {
   try {
     if (!isLocalReady() && !(await hasLocalAudio(t))) {
       if (mine !== ticket) return true;
@@ -265,7 +275,7 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
       return false;
     }
     const blob = await generateLocal(t);
-    await playBlob(blob, rate, mine, onEnd);
+    await playBlob(blob, rate, mine, onEnd, onProgress);
     return true;
   } catch (e) {
     lastTtsError = e instanceof Error ? e.message : String(e);
@@ -273,7 +283,8 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
   }
 }
 
-export function speak(text: string, rate = 1, onEnd?: () => void): void {
+/** onProgress: 지금 읽는 위치를 글자 수 기준 0~1 비율로 알려 줌 (읽는 단어 표시용) */
+export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (f: number) => void): void {
   const t = text.trim();
   if (!t) {
     onEnd?.();
@@ -286,15 +297,15 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
   const engine = getTtsEngine();
   void (async () => {
     if (engine === 'local') {
-      if (await localSpeak(t, rate, mine, onEnd)) return;
+      if (await localSpeak(t, rate, mine, onEnd, onProgress)) return;
       if (mine !== ticket) return;
       if (lastTtsError) notifyFallback(`오픈소스 음성 오류: ${lastTtsError}`);
-      deviceSpeak(t, rate, mine, onEnd);
+      deviceSpeak(t, rate, mine, onEnd, onProgress);
       return;
     }
     if (engine === 'device') {
       notifyFallback('설정에서 음성 방식이 "기기 음성"으로 되어 있어요.');
-      deviceSpeak(t, rate, mine, onEnd);
+      deviceSpeak(t, rate, mine, onEnd, onProgress);
       return;
     }
 
@@ -302,10 +313,10 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
     if (geminiFailures >= 2 && Date.now() - lastGeminiFailureAt > FAILURE_COOLDOWN_MS) geminiFailures = 0;
     if (!getGeminiKeys().length || geminiFailures >= 2) {
       const why = !getGeminiKeys().length ? 'Gemini 키가 없어요.' : `Gemini 음성이 계속 실패했어요. ${lastTtsError}`;
-      if (await localSpeak(t, rate, mine, onEnd)) return;
+      if (await localSpeak(t, rate, mine, onEnd, onProgress)) return;
       if (mine !== ticket) return;
       notifyFallback(why);
-      deviceSpeak(t, rate, mine, onEnd);
+      deviceSpeak(t, rate, mine, onEnd, onProgress);
       return;
     }
     try {
@@ -313,17 +324,17 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
       if (mine !== ticket) return;
       geminiFailures = 0;
       lastTtsError = '';
-      await playBlob(blob, rate, mine, onEnd);
+      await playBlob(blob, rate, mine, onEnd, onProgress);
     } catch (e) {
       if (mine !== ticket) return;
       geminiFailures++;
       lastGeminiFailureAt = Date.now();
       lastTtsError = e instanceof Error ? e.message : String(e);
       // Gemini가 안 되면 오픈소스 음성, 그것도 안 되면 기기 음성
-      if (await localSpeak(t, rate, mine, onEnd)) return;
+      if (await localSpeak(t, rate, mine, onEnd, onProgress)) return;
       if (mine !== ticket) return;
       notifyFallback(`Gemini 음성 오류: ${lastTtsError}`);
-      deviceSpeak(t, rate, mine, onEnd);
+      deviceSpeak(t, rate, mine, onEnd, onProgress);
     }
   })();
 }
