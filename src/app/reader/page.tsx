@@ -536,7 +536,7 @@ function ReaderInner() {
 
       {content && (
         <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 25, background: 'var(--surface)', borderTop: '1px solid var(--line)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-          <div style={{ maxWidth: 1180, margin: '0 auto', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ maxWidth: 1480, margin: '0 auto', padding: '10px 28px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button className="icon-btn" aria-label="이전 문장" onClick={() => setCur((c) => Math.max(0, c - 1))} disabled={cur === 0}>
               <Icon name="back" />
             </button>
