@@ -41,7 +41,17 @@ export const KIND_LABEL: Record<DocKind, string> = {
 const HANGUL_RULES = `Korean pronunciation guide ("hangul") rules:
 - Write how a native American English speaker actually says it, in Hangul.
 - Wrap ONLY the primary-stressed syllable in asterisks, e.g. "익스*텐*션", "스판덜로리스*씨*시스", "*럼*바".
-- Use common Korean loanword-style spelling, but follow real pronunciation (flap t, schwa) rather than spelling.`;
+- Use common Korean loanword-style spelling, but follow real pronunciation (flap t, schwa) rather than spelling.
+- The reader is a complete beginner: spell sounds that do not exist in Korean so they are easy to tell apart:
+  - /ʒ/ (measure, vision, treasure, usual): "저/져" family, never "슈" -> "*메*저", "*비*젼". /ʃ/ (sure, pressure, -tion): "슈/션" family -> "*프레*셔", "엑스텐*션*". /tʃ/ ch: "치/체", /dʒ/ j, g: "지/제".
+  - th: voiced /ð/ (the, this, that, with) -> "더/디/댓/위드"; voiceless /θ/ (think, thyroid, bath) -> "씽크", "*싸*이로이드", "배쓰" (use "ㅆ", not "ㅅ").
+  - r vs l: initial r -> "뤼/뤠/롸" style (red "*뤠*드", right "*롸*잇"); initial l -> plain "ㄹ" ("라/레"); American final r keeps a soft "ㄹ" ("*워*러", "*메*저").
+  - f -> "ㅍ" and v -> "ㅂ" (fever "*퓌*버", very "*베*뤼"); mention in "why" that f/v use the lip-on-teeth position when confusing.
+  - z/-s voiced endings: "즈" (is -> "이즈", muscles -> "*머*쓸즈"); unvoiced s: "스".
+  - final -tion/-sion/-cial: "션/젼/셜"; -ture: "철", -ous: "어스", -ed: "ㅌ/ㄷ/드" by sound (walked -> "*워*크트", moved -> "*무*브드").
+  - short a /æ/ (cat, anatomy) -> "애" (not "아"); /ʌ/ (cut) -> "어"; /ɑ/ (hot) -> "아"; schwa -> weak "어/으".
+  - Silent letters are not pronounced (knee "니", debt "뎃", psychology "싸이*칼*러지").
+  - In "why", give a one-line beginner tip for tricky sounds, e.g. "s 뒤 u는 'ʒ'(저) 소리, '슈' 아님".`;
 
 /** 음절 목록에서 강세(*) 표시가 있는 한글 발음을 만듦 */
 function joinHangul(syl: { ko: string; stress: boolean }[]): string {
