@@ -443,7 +443,7 @@ function ReaderInner() {
                 const err = errKeys[k];
                 const tokens = tokenize(s);
                 return (
-                  <div key={k} className={`sentence${i === cur ? ' current' : ''}`}>
+                  <div key={k} className={`sentence${i === cur ? ' current' : ''}`} onClick={() => setCur(i)}>
                     {isLecture && (videoUrl || ytId) && content?.pages[page]?.times?.[i] !== undefined && (
                       <button className="small" style={{ background: 'none', border: 'none', color: 'var(--teal)', minHeight: 28, padding: 0, fontFamily: 'var(--font-ui)' }} onClick={() => seekTo(i)}>
                         ▶ {formatTime(content.pages[page].times![i])}
