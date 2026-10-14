@@ -176,8 +176,8 @@ function ReaderInner() {
         const k = keyOf(page, i);
         const old = cacheRef.current!.sentences[k];
         // 끊어 읽기 정보가 없는 예전 분석은 다시 받아옴
-        // 번역이 비어 저장된 예전 분석도 다시 받아옴
-        const need = !old || !old.translation || (prefs.ph && old.br === undefined);
+        // 번역·한글 발음이 비어 저장된 예전 분석도 다시 받아옴
+        const need = !old || !old.translation || !old.hk.some((h) => h.trim()) || (prefs.ph && old.br === undefined);
         return need && !inflight.current.has(k) && sentences[i];
       });
       const parts: number[][] = [];
@@ -512,6 +512,7 @@ function ReaderInner() {
             </article>
 
             <aside className="reader-side stack">
+              <div id="grammar-dock" />
               <div className="card stack">
                 <b style={{ fontSize: 13, color: 'var(--teal)' }}>지금 문장</b>
                 <span style={{ fontFamily: 'var(--font-read)', fontSize: 16, lineHeight: 1.5 }}>{sentences[cur] ?? ''}</span>

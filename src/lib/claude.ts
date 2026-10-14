@@ -129,8 +129,8 @@ ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLi
     return { translation: String(found?.translation ?? '').trim(), hk: fixed, br };
   });
 
-  // 번역이 빠진 문장은 그 문장만 한 번 더 요청하고, 그래도 비면 오류로 알려 "다시 시도"가 뜨게 함 (빈 번역이 저장되지 않도록)
-  const missing = result.map((r, k) => (r.translation ? -1 : k)).filter((k) => k >= 0);
+  // 번역이나 한글 발음이 빠진 문장은 그 문장만 한 번 더 요청하고, 그래도 비면 오류로 알려 "다시 시도"가 뜨게 함 (빈 번역이 저장되지 않도록)
+  const missing = result.map((r, k) => (r.translation && r.hk.some((h) => h.trim()) ? -1 : k)).filter((k) => k >= 0);
   if (missing.length) {
     if (!retry) {
       const again = await analyzeSentences(
@@ -141,7 +141,7 @@ ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLi
       );
       missing.forEach((k, n) => (result[k] = again[n]));
     } else {
-      throw new AIError('bad-response', getProvider(), 'AI가 일부 문장의 번역을 빠뜨렸어요. 다시 시도해 주세요.');
+      throw new AIError('bad-response', getProvider(), 'AI가 일부 문장의 번역·발음을 빠뜨렸어요. 다시 시도해 주세요.');
     }
   }
   return result;

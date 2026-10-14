@@ -2,6 +2,7 @@
 // 지금 문장의 문법을 분석해서 보여주는 아래 창 - 마음에 드는 항목은 "문법 노트"에 저장
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { analyzeGrammar, grammarId } from '@/lib/grammar';
 import type { DocKind, GrammarAnalysis, GrammarExample, GrammarItem, GrammarPoint } from '@/lib/types';
@@ -30,6 +31,16 @@ export function GrammarSheet({ target, docId, docTitle, kind, cached, onCache, o
   const [loading, setLoading] = useState(false);
 
   const reqId = useRef(0);
+
+  // PC(넓은 화면)에서는 아래 창 대신 읽기 화면 우측 패널(#grammar-dock) 안에 표시
+  const [dock, setDock] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const update = () => setDock(mq.matches ? document.getElementById('grammar-dock') : null);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [target]);
 
   const load = useCallback(async () => {
     if (!target) return;
@@ -96,10 +107,11 @@ export function GrammarSheet({ target, docId, docTitle, kind, cached, onCache, o
     return !!g && !g.deleted && g.examples.some((e) => e.docId === docId && e.sentence === target.sentence);
   };
 
-  return (
+  const docked = !!dock;
+  const body = (
     <>
-      <button className="scrim" aria-label="문법 창 닫기" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-label="문법 분석">
+      {!docked && <button className="scrim" aria-label="문법 창 닫기" onClick={onClose} />}
+      <div className={docked ? 'dock-panel' : 'sheet'} role="dialog" aria-label="문법 분석">
         <div className="sheet-inner">
           <div className="between" style={{ alignItems: 'flex-start' }}>
             <b style={{ fontSize: 16, color: 'var(--teal)' }}>문법 분석</b>
@@ -164,4 +176,5 @@ export function GrammarSheet({ target, docId, docTitle, kind, cached, onCache, o
       </div>
     </>
   );
+  return dock ? createPortal(body, dock) : body;
 }

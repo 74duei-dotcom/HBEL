@@ -197,6 +197,9 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .reader-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(440px, 1fr); gap: 28px; align-items: start; }
   .reader-side { position: sticky; top: 76px; }
   .reader-side .card { padding: 18px 20px; }
+  .reader-side { max-height: calc(100vh - 170px); overflow-y: auto; padding-bottom: 4px; }
+  .dock-panel { background: var(--surface); border: 1px solid var(--teal); border-radius: var(--radius); box-shadow: var(--shadow-md); padding: 16px 18px; }
+  .dock-panel .sheet-inner { max-width: none; }
 }
 @media (min-width: 1500px) {
   .reader-layout { grid-template-columns: minmax(0, 1.15fr) minmax(520px, 1fr); }
