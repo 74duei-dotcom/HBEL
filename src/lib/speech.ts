@@ -12,6 +12,10 @@ import { lsGet, lsSet } from './util';
 export type TtsEngine = 'gemini' | 'device';
 
 const VOICE_NAME = 'Kore';
+/** 원어민처럼 또렷하고 자연스러운 미국 발음으로 읽도록 하는 지시문 (소리로 읽히지 않고 말투만 정함) */
+const STYLE_PREFIX = 'Say in a clear, natural American English accent, at a calm steady pace: ';
+/** 저장된 소리 구분용 버전 (지시문을 바꾸면 올림) */
+const AUDIO_VER = 'v2';
 
 /** 설정에서 고른 음성 방식. 고른 적 없으면 Gemini 키가 있을 때 Gemini */
 export function getTtsEngine(): TtsEngine {
@@ -33,7 +37,8 @@ function pickVoice(): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
   const voices = window.speechSynthesis.getVoices();
   cachedVoice =
-    voices.find((v) => v.lang === 'en-US' && /google|samsung|natural/i.test(v.name)) ??
+    voices.find((v) => v.lang === 'en-US' && /natural|online/i.test(v.name)) ??
+    voices.find((v) => v.lang === 'en-US' && /google|samsung/i.test(v.name)) ??
     voices.find((v) => v.lang === 'en-US') ??
     voices.find((v) => v.lang.startsWith('en')) ??
     null;
@@ -42,6 +47,12 @@ function pickVoice(): SpeechSynthesisVoice | null {
 
 function canDeviceSpeak(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window;
+}
+
+/** 기기 내장 음성(기계음)으로 대신 읽을 때 이유를 화면에 알리기 위한 알림 */
+export const TTS_FALLBACK_EVENT = 'tts-fallback';
+function notifyFallback(reason: string): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(TTS_FALLBACK_EVENT, { detail: reason }));
 }
 
 function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => void): void {
@@ -127,7 +138,7 @@ async function requestGeminiAudio(text: string): Promise<Blob> {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text }] }],
+          contents: [{ role: 'user', parts: [{ text: STYLE_PREFIX + text }] }],
           generationConfig: {
             responseModalities: ['AUDIO'],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
@@ -145,7 +156,7 @@ async function requestGeminiAudio(text: string): Promise<Blob> {
           method: 'POST',
           headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
           body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text }] }],
+            contents: [{ role: 'user', parts: [{ text: STYLE_PREFIX + text }] }],
             generationConfig: {
               responseModalities: ['AUDIO'],
               speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE_NAME } } },
@@ -182,8 +193,18 @@ async function requestGeminiAudio(text: string): Promise<Blob> {
   throw new Error(lastErr || 'Gemini 음성을 만들지 못했어요.');
 }
 
-async function getGeminiAudio(text: string): Promise<Blob> {
-  const key = `tts:${GEMINI_TTS_MODEL}:${VOICE_NAME}:${text}`;
+const audioInflight = new Map<string, Promise<Blob>>();
+
+function getGeminiAudio(text: string): Promise<Blob> {
+  const key = `tts:${AUDIO_VER}:${GEMINI_TTS_MODEL}:${VOICE_NAME}:${text}`;
+  const going = audioInflight.get(key);
+  if (going) return going; // 미리 만드는 중인 소리가 있으면 그걸 기다림 (중복 요청 방지)
+  const p = getGeminiAudioNow(key, text).finally(() => audioInflight.delete(key));
+  audioInflight.set(key, p);
+  return p;
+}
+
+async function getGeminiAudioNow(key: string, text: string): Promise<Blob> {
   const mem = memory.get(key);
   if (mem) return mem;
   try {
@@ -233,6 +254,13 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
   }
 
   if (getTtsEngine() !== 'gemini' || !getGeminiKeys().length || geminiFailures >= 2) {
+    notifyFallback(
+      getTtsEngine() !== 'gemini'
+        ? '설정에서 음성 방식이 "기기 음성"으로 되어 있어요.'
+        : !getGeminiKeys().length
+          ? 'Gemini 키가 없어요.'
+          : `Gemini 음성이 계속 실패했어요. ${lastTtsError}`
+    );
     deviceSpeak(t, rate, mine, onEnd);
     return;
   }
@@ -253,6 +281,7 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
         } else {
           if (mine !== ticket) return;
           usedDevice = true;
+          notifyFallback('Gemini 소리가 늦어서 먼저 기기 음성으로 읽었어요. 다음부터는 저장된 소리로 나와요.');
           deviceSpeak(t, rate, mine, onEnd);
           void pending.then(() => { geminiFailures = 0; }, () => {});
           return;
@@ -282,6 +311,7 @@ export function speak(text: string, rate = 1, onEnd?: () => void): void {
       geminiFailures++;
       lastGeminiFailureAt = Date.now();
       lastTtsError = e instanceof Error ? e.message : String(e);
+      notifyFallback(`Gemini 음성 오류: ${lastTtsError}`);
       deviceSpeak(t, rate, mine, onEnd);
     }
   })();
@@ -301,4 +331,23 @@ export async function testGeminiVoice(): Promise<void> {
   a.onended = () => URL.revokeObjectURL(url);
   await a.play();
   geminiFailures = 0;
+}
+
+/** 곧 들을 문장의 소리를 미리 만들어 저장 → 재생 버튼을 누르면 바로 시작 (하나씩 차례로, 실패는 조용히 무시) */
+let prefetchRun = 0;
+export function prefetchSpeech(texts: string[]): void {
+  if (getTtsEngine() !== 'gemini' || !getGeminiKeys().length || geminiFailures >= 2) return;
+  const run = ++prefetchRun;
+  void (async () => {
+    for (const t of texts) {
+      if (run !== prefetchRun) return; // 더 새로운 미리 만들기가 시작되면 중단
+      const x = t.trim();
+      if (!x) continue;
+      try {
+        await getGeminiAudio(x);
+      } catch {
+        return;
+      }
+    }
+  })();
 }

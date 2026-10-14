@@ -7,7 +7,7 @@ import { activeVocab, loadAnalysis, loadDocContent, removeDocFiles, saveAnalysis
 import { analyzeSentences, HANGUL_VERSION } from '@/lib/claude';
 import { driveViewUrl } from '@/lib/drive';
 import { createYouTubePlayer, formatTime, loadVideo, saveVideo, type YTPlayer } from '@/lib/video';
-import { speak, stopSpeaking, canSpeak } from '@/lib/speech';
+import { speak, stopSpeaking, canSpeak, prefetchSpeech, TTS_FALLBACK_EVENT } from '@/lib/speech';
 import type { DocAnalysisCache, DocContent, GrammarAnalysis, WordInfo } from '@/lib/types';
 import { cleanWord, errorMessage, tokenize } from '@/lib/util';
 import { AaMenu } from '@/components/AaMenu';
@@ -233,6 +233,20 @@ function ReaderInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cache !== null, page, cur, prefs.hk, prefs.tr, prefs.ph, prefs.focus, sentences]);
 
+  const [ttsNote, setTtsNote] = useState('');
+  useEffect(() => {
+    const h = (e: Event) => setTtsNote(String((e as CustomEvent).detail ?? ''));
+    window.addEventListener(TTS_FALLBACK_EVENT, h);
+    return () => window.removeEventListener(TTS_FALLBACK_EVENT, h);
+  }, []);
+
+  // 지금 문장과 다음 문장들의 소리를 미리 만들어 두어 재생 버튼을 누르면 바로 시작되게 함
+  useEffect(() => {
+    if (!sentences.length) return;
+    const t = setTimeout(() => prefetchSpeech([cur, cur + 1, cur + 2].map((i) => sentences[i]).filter(Boolean)), 400);
+    return () => clearTimeout(t);
+  }, [cur, sentences]);
+
   const goPage = (p: number) => {
     if (!content || !doc) return;
     const np = Math.max(0, Math.min(content.pages.length - 1, p));
@@ -387,6 +401,12 @@ function ReaderInner() {
       <main className="page wide no-tabs" style={{ paddingBottom: 150 }}>
         <SyncBanner />
         {loadErr && <div className="banner err">{loadErr}</div>}
+        {ttsNote && (
+          <div className="banner warn">
+            <span className="grow">기계음으로 읽었어요: {ttsNote} <Link href="/settings/">설정에서 확인</Link></span>
+            <button className="btn sm" onClick={() => setTtsNote('')}>닫기</button>
+          </div>
+        )}
         {!content && !loadErr && (
           <div className="stack" role="status">
             <span className="muted">본문을 불러오는 중…</span>
