@@ -418,14 +418,14 @@ function ReaderInner() {
           <button className="topbar-title" onClick={rename} style={{ border: 'none', background: 'none', padding: 0 }} aria-label="자료 이름 바꾸기">
             <strong>{doc.title}</strong>
             <span>
-              {page + 1} / {totalPages}쪽 · 문장 {sentences.length}
+              {page + 1} / {totalPages}쪽 · 문장 {Math.min(cur + 1, sentences.length)} / {sentences.length}
             </span>
           </button>
           <AaMenu hasTr hasFocus />
         </div>
       </header>
 
-      <main className="page wide no-tabs" style={{ paddingBottom: 150 }}>
+      <main className="page wide no-tabs" style={{ paddingBottom: 110 }}>
         <SyncBanner />
         {loadErr && <div className="banner err">{loadErr}</div>}
         {ttsNote && (
@@ -564,9 +564,6 @@ function ReaderInner() {
                 <b style={{ fontSize: 13, color: 'var(--teal)' }}>지금 문장</b>
                 <span style={{ fontFamily: 'var(--font-read)', fontSize: 16, lineHeight: 1.5 }}>{sentences[cur] ?? ''}</span>
                 {cache?.sentences[keyOf(page, cur)]?.translation && <div className="tr" style={{ marginTop: 0 }}>{cache.sentences[keyOf(page, cur)].translation}</div>}
-                <button className="btn sm primary" disabled={!sentences[cur]} onClick={() => sentences[cur] && setGTarget({ sentence: sentences[cur], page })}>
-                  <Icon name="grammar" size={16} /> 이 문장 문법 분석
-                </button>
               </div>
               <div className="card stack">
                 <b style={{ fontSize: 13 }}>자료 관리</b>
@@ -584,7 +581,7 @@ function ReaderInner() {
 
       {content && (
         <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 25, background: 'var(--surface)', borderTop: '1px solid var(--line)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-          <div style={{ maxWidth: 1480, margin: '0 auto', padding: '10px 28px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ maxWidth: 1480, margin: '0 auto', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
             <button className="icon-btn" aria-label="이전 문장" onClick={() => setCur((c) => Math.max(0, c - 1))} disabled={cur === 0}>
               <Icon name="back" />
             </button>
@@ -594,19 +591,13 @@ function ReaderInner() {
             <button className="icon-btn" aria-label="다음 문장" onClick={() => setCur((c) => Math.min(sentences.length - 1, c + 1))} disabled={cur >= sentences.length - 1}>
               <Icon name="next" />
             </button>
-            <div className="seg grow" role="radiogroup" aria-label="재생 속도" style={{ padding: 3, minWidth: 180 }}>
-              {SPEEDS.map((s) => (
-                <button key={s} role="radio" aria-checked={speed === s} onClick={() => setSpeed(s)} style={{ fontSize: 13 }}>
-                  {s}x
-                </button>
-              ))}
-            </div>
+            <button className="btn sm" aria-label={`재생 속도 ${speed}배, 누르면 바뀜`} onClick={() => setSpeed((v) => SPEEDS[(SPEEDS.indexOf(v) + 1) % SPEEDS.length])} style={{ minWidth: 64 }}>
+              {speed}x
+            </button>
+            <span className="grow" />
             <button className="btn sm" disabled={!sentences[cur]} onClick={() => sentences[cur] && setGTarget({ sentence: sentences[cur], page })}>
               <Icon name="grammar" size={16} /> 문법
             </button>
-            <span className="small">
-              문장 {Math.min(cur + 1, sentences.length)} / {sentences.length}
-            </span>
           </div>
         </div>
       )}

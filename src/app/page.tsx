@@ -11,6 +11,11 @@ import { SyncBanner } from '@/components/SyncBanner';
 import { Icon } from '@/components/Icon';
 import { AlphabetLinkCard } from '@/components/AlphabetSheet';
 
+const KIND_STYLE = {
+  paper: { bg: '#f7e9e6', fg: 'var(--med)' },
+  book: { bg: 'var(--blue-soft)', fg: 'var(--blue-ink)' },
+  lecture: { bg: 'var(--amber-soft)', fg: 'var(--amber-ink)' },
+} as const;
 const KIND_LABEL = { paper: '논문', book: '전문서적', lecture: '강의' } as const;
 
 export default function HomePage() {
@@ -90,8 +95,6 @@ export default function HomePage() {
           </span>
         </Link>
 
-        <AlphabetLinkCard />
-
         {docs.length > 0 && (
           <section className="stack">
             <div className="between">
@@ -100,24 +103,30 @@ export default function HomePage() {
             <div className="card flush">
               {docs.map((d) => (
                 <Link key={d.id} href={d.status === 'ready' ? `/reader/?id=${d.id}` : '/upload/'} className="list-row">
-                  <span className="icon-btn" style={{ background: '#f7e9e6', color: 'var(--med)', borderRadius: 10, width: 40, height: 40 }} aria-hidden="true">
-                    <Icon name="pdf" size={19} />
+                  <span className="icon-btn" style={{ background: KIND_STYLE[d.kind].bg, color: KIND_STYLE[d.kind].fg, borderRadius: 10, width: 40, height: 40 }} aria-hidden="true">
+                    <Icon name={d.kind === 'lecture' ? 'play' : 'pdf'} size={19} />
                   </span>
                   <span className="grow stack" style={{ gap: 2 }}>
                     <span style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</span>
                     <span className="small">
                       {KIND_LABEL[d.kind]} · {d.pageCount}쪽 · 문장 {d.sentenceCount}
                       {d.status === 'ready' && d.lastPage > 0 ? ` · ${d.lastPage + 1}쪽까지 읽음` : ''}
+                      {d.status === 'ready' && d.lastPage === 0 ? ' · 아직 안 읽음' : ''}
                     </span>
+                    {d.status === 'error' && <span className="small" style={{ color: 'var(--red)' }}>{d.error ? d.error.slice(0, 60) : '처리하지 못했어요'} · 눌러서 다시 올리기</span>}
+                    {d.status === 'processing' && <span className="small">처리가 끝나면 읽을 수 있어요 · 눌러서 진행 보기</span>}
                   </span>
                   {d.status === 'processing' && <span className="chip warn">처리 중</span>}
                   {d.status === 'error' && <span className="chip err">오류</span>}
                   {d.status === 'ready' && d.scanned && <span className="chip warn">스캔본</span>}
+                  {d.status === 'ready' && d.lastPage === 0 && <span className="chip ok">새 자료</span>}
                 </Link>
               ))}
             </div>
           </section>
         )}
+
+        <AlphabetLinkCard />
       </main>
       <TabBar />
     </>

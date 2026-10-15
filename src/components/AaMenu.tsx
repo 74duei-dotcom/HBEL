@@ -29,11 +29,13 @@ export function AaMenu({ hasTr = true, hasFocus = false }: { hasTr?: boolean; ha
   }, [open]);
 
   const rows: { key: 'hk' | 'tr' | 'ph' | 'focus'; label: string; help: string }[] = [
-    { key: 'hk', label: '한글 발음', help: '영어 단어 바로 아래' },
-    { key: 'ph', label: '끊어 읽기', help: '쉬어 읽는 자리에 / 표시' },
+    { key: 'hk', label: '한글 발음', help: '영어 단어 바로 아래에 한글로 표시' },
+    { key: 'ph', label: '끊어 읽기', help: '쉬어 읽는 곳에 / 표시 (예: Pain / in the knee)' },
   ];
-  if (hasTr) rows.push({ key: 'tr', label: '번역', help: '문장 아래 한국어 뜻' });
-  if (hasFocus) rows.push({ key: 'focus', label: '읽는 문장에만', help: '긴 글은 지금 문장만 표시' });
+  if (hasTr) rows.push({ key: 'tr', label: '번역', help: '문장 아래에 한국어 뜻 표시' });
+  if (hasFocus) rows.push({ key: 'focus', label: '읽는 문장에만', help: '지금 읽는 문장만 보여 줘요' });
+
+  const on = rows.filter((r) => p[r.key]).map((r) => r.label);
 
   const sizes: [FontSize, string][] = [
     ['s', '작게'],
@@ -43,9 +45,9 @@ export function AaMenu({ hasTr = true, hasFocus = false }: { hasTr?: boolean; ha
 
   return (
     <div className="aa" ref={ref}>
-      <button className="aa-btn" aria-label="보기 설정" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button className="aa-btn" aria-label={`보기 설정 (켜진 것: ${on.length ? on.join(', ') : '없음'})`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         Aa
-        {(p.hk || (hasTr && p.tr)) && <span className="aa-dot" aria-hidden="true" />}
+        {on.length > 0 && <span className="aa-dot" aria-hidden="true" />}
       </button>
       {open && (
         <div className="aa-panel" role="dialog" aria-label="보기 설정">
@@ -70,7 +72,7 @@ export function AaMenu({ hasTr = true, hasFocus = false }: { hasTr?: boolean; ha
               ))}
             </div>
           </div>
-          <span className="small">여기서 바꾸면 모든 화면에 함께 적용돼요</span>
+          <span className="small" role="status">{on.length ? `지금 켜짐: ${on.join(' · ')}` : '지금 모두 꺼져 있어요'} · 모든 화면에 함께 적용돼요</span>
         </div>
       )}
     </div>
