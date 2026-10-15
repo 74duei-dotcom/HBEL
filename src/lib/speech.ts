@@ -33,8 +33,6 @@ function chosenLocal(): boolean {
 /** 설정에서 고른 음성 방식. 고른 적 없으면 Gemini 키가 있을 때 Gemini */
 export function getTtsEngine(): TtsEngine {
   const v = lsGet(LS_KEYS.ttsEngine);
-  // 핸드폰·아이패드는 오픈소스 음성 모델이 메모리 부족으로 멈추므로 Gemini만 사용
-  if (isMobileDevice()) return 'gemini';
   if (v === 'local' || v === 'gemini') return v; // 예전에 고른 '기기 음성'은 더 이상 선택지가 아니므로 기본값 사용
   // 기본: PC는 키·한도가 필요 없는 오픈소스 음성, 핸드폰은 가벼운 Gemini 음성(안 되면 기기 음성)
   return isMobileDevice() ? 'gemini' : 'local';

@@ -2,13 +2,14 @@
 // 설정: 문장 듣기 음성 선택 (오픈소스 음성 / Gemini 음성) + 소리 확인
 import { useEffect, useState } from 'react';
 import { getGeminiKeys } from '@/lib/ai';
-import { getTtsEngine, isMobileDevice, setTtsEngine, testGeminiVoice, testLocalVoice } from '@/lib/speech';
+import { getTtsEngine, setTtsEngine, testGeminiVoice, testLocalVoice } from '@/lib/speech';
 import type { TtsEngine } from '@/lib/speech';
+import { getLocalStage } from '@/lib/localTts';
 import { errorMessage } from '@/lib/util';
 
 export function VoiceSettings() {
   const [engine, setEngine] = useState<TtsEngine>('local');
-  const [mobile, setMobile] = useState(false);
+  const [stage, setStage] = useState('');
   const [hasKey, setHasKey] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -17,13 +18,22 @@ export function VoiceSettings() {
   useEffect(() => {
     setEngine(getTtsEngine());
     setHasKey(getGeminiKeys().length > 0);
-    setMobile(isMobileDevice());
   }, []);
 
   const pick = (e: TtsEngine) => {
     setEngine(e);
     setTtsEngine(e);
   };
+
+  // 만드는 동안 지금 어느 단계인지(내려받는 %, 준비 중 등)를 보여 줌
+  useEffect(() => {
+    if (!busy || engine !== 'local') return;
+    const t = setInterval(() => setStage(getLocalStage()), 500);
+    return () => {
+      clearInterval(t);
+      setStage('');
+    };
+  }, [busy, engine]);
 
   const test = async () => {
     setBusy(true);
@@ -43,16 +53,13 @@ export function VoiceSettings() {
   return (
     <div className="stack">
       <div className="seg" role="tablist">
-        {!mobile && (
-          <button role="tab" aria-selected={engine === 'local'} onClick={() => pick('local')}>
-            오픈소스 음성
-          </button>
-        )}
+        <button role="tab" aria-selected={engine === 'local'} onClick={() => pick('local')}>
+          오픈소스 음성
+        </button>
         <button role="tab" aria-selected={engine === 'gemini'} onClick={() => pick('gemini')}>
           Gemini 음성
         </button>
       </div>
-      {mobile && <span className="small">이 기기(핸드폰·태블릿)는 메모리가 부족해 오픈소스 음성을 쓸 수 없어요. Gemini 음성을 사용합니다.</span>}
       <span className="small">
         오픈소스 음성(Kokoro)은 이 기기 안에서 직접 만들어서 키·사용 한도가 없고, 한 번 내려받으면(약 90MB) 인터넷 없이도 돼요. 처음 한 번은 내려받느라 시간이 걸리고, 그동안은 기기 음성으로 읽어요. 핸드폰에서는 계산이 느리고 메모리를 많이 써서, 직접 고르지 않으면 Gemini 음성(또는 기기 음성)을 써요.
       </span>
@@ -63,7 +70,7 @@ export function VoiceSettings() {
       {msg && <div className="banner err">{msg}</div>}
       {ok && <div className="banner info">{ok}</div>}
       <button className="btn" disabled={busy || (engine !== 'local' && !hasKey)} onClick={() => void test()}>
-        {busy ? (engine === 'local' ? '내려받고 만드는 중… (처음엔 1~2분)' : '만드는 중…') : engine === 'local' ? '오픈소스 음성 소리 확인' : 'Gemini 음성 소리 확인'}
+        {busy ? (engine === 'local' ? `${stage || '시작하는 중…'} (처음엔 몇 분 걸릴 수 있어요)` : '만드는 중…') : engine === 'local' ? '오픈소스 음성 소리 확인' : 'Gemini 음성 소리 확인'}
       </button>
     </div>
   );

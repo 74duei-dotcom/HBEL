@@ -17,6 +17,13 @@ let loadError = '';
 /** 모델 내려받기 진행률 (0~100) */
 export let localProgress = 0;
 
+/** 지금 단계 설명 (설정 화면에 표시) */
+export function getLocalStage(): string {
+  return localStage;
+}
+let localStage = '';
+let lastActivity = 0;
+
 export function isLocalReady(): boolean {
   return ready;
 }
@@ -27,10 +34,17 @@ export function getLocalError(): string {
 function getWorker(): Worker {
   if (worker) return worker;
   const w = new Worker(new URL('./kokoroWorker.ts', import.meta.url), { type: 'module' });
-  w.onmessage = (e: MessageEvent<{ id?: number; ok?: boolean; blob?: Blob; error?: string; progress?: number }>) => {
+  w.onmessage = (e: MessageEvent<{ id?: number; ok?: boolean; blob?: Blob; error?: string; progress?: number; stage?: string }>) => {
     const m = e.data;
+    if (typeof m.stage === 'string') {
+      localStage = m.stage;
+      lastActivity = Date.now();
+      return;
+    }
     if (typeof m.progress === 'number') {
       localProgress = m.progress;
+      localStage = `모델 내려받는 중 ${m.progress}%`;
+      lastActivity = Date.now();
       return;
     }
     const p = m.id !== undefined ? pending.get(m.id) : undefined;
@@ -58,15 +72,21 @@ function call(msg: { type: 'load' | 'generate'; text?: string }): Promise<Blob |
     pending.set(id, { resolve, reject });
     getWorker().postMessage({ id, voice: VOICE, ...msg });
     if (msg.type === 'load') {
-      // 3분 안에 준비되지 않으면 무한 대기하지 않고 오류로 알림 (작업 스레드를 버리고 다음에 새로 시작)
-      setTimeout(() => {
-        if (!pending.has(id)) return;
+      // 3분 동안 아무 진행(내려받기 %·단계 변화)이 없으면 무한 대기하지 않고 오류로 알림
+      lastActivity = Date.now();
+      const watch = setInterval(() => {
+        if (!pending.has(id)) {
+          clearInterval(watch);
+          return;
+        }
+        if (Date.now() - lastActivity < 180_000) return;
+        clearInterval(watch);
         pending.delete(id);
         worker?.terminate();
         worker = null;
         loadP = null;
-        reject(new Error('음성 모델 준비가 너무 오래 걸려 중단했어요. 이 기기에서는 Gemini 음성을 써 주세요.'));
-      }, 180_000);
+        reject(new Error(`음성 모델 준비가 멈췄어요(마지막 단계: ${localStage || '시작 전'}). 잠시 후 다시 시도하거나 Gemini 음성을 써 주세요.`));
+      }, 5000);
     }
   });
 }
