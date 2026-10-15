@@ -2,7 +2,7 @@
 // A1 내 자료 (홈)
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { activeDocs, activeVocab, useStore } from '@/lib/store';
+import { activeDocs, activeVocab, removeDocFiles, useStore } from '@/lib/store';
 import { buildQueue } from '@/lib/srs';
 import { lsGet } from '@/lib/util';
 import { LS_KEYS } from '@/lib/config';
@@ -19,7 +19,7 @@ const KIND_STYLE = {
 const KIND_LABEL = { paper: '논문', book: '전문서적', lecture: '강의' } as const;
 
 export default function HomePage() {
-  const { data, ready } = useStore();
+  const { data, ready, removeDoc } = useStore();
   const [mounted, setMounted] = useState(false);
   const [setupDone, setSetupDone] = useState(true);
   const [tab, setTab] = useState<'all' | 'pdf' | 'video'>('all');
@@ -44,7 +44,12 @@ export default function HomePage() {
       localStorage.setItem('hbel.homeTab', t);
     } catch {}
   };
-  const lastRead = docs.find((d) => d.status === 'ready');
+  const removeItem = async (id: string, title: string, isVideo: boolean) => {
+    if (!window.confirm(`"${title}"을(를) 내 자료에서 지울까요?\n단어장에 저장한 단어는 남고, ${isVideo ? '구글 드라이브의 영상 파일도' : '구글 드라이브의 원본 PDF도'} 그대로 남아요.`)) return;
+    removeDoc(id);
+    await removeDocFiles(id);
+  };
+  const lastRead =docs.find((d) => d.status === 'ready');
   const today = mounted ? new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' }) : '';
 
   return (
@@ -132,7 +137,8 @@ export default function HomePage() {
             {shownDocs.length > 0 && (
             <div className="card flush">
               {shownDocs.map((d) => (
-                <Link key={d.id} href={d.status === 'ready' ? `/reader/?id=${d.id}` : '/upload/'} className="list-row">
+                <div key={d.id} className="list-row" style={{ padding: 0, gap: 0 }}>
+                <Link href={d.status === 'ready' ? `/reader/?id=${d.id}` : '/upload/'} style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0 12px 14px', textDecoration: 'none', color: 'var(--ink)' }}>
                   <span className="icon-btn" style={{ background: KIND_STYLE[d.kind].bg, color: KIND_STYLE[d.kind].fg, borderRadius: 10, width: 40, height: 40 }} aria-hidden="true">
                     <Icon name={d.kind === 'lecture' ? 'play' : 'pdf'} size={19} />
                   </span>
@@ -151,6 +157,10 @@ export default function HomePage() {
                   {d.status === 'ready' && d.scanned && <span className="chip warn">스캔본</span>}
                   {d.status === 'ready' && d.lastPage === 0 && <span className="chip ok">새 자료</span>}
                 </Link>
+                <button type="button" className="icon-btn" aria-label={`${d.title} 삭제`} onClick={() => removeItem(d.id, d.title, d.kind === 'lecture')} style={{ color: 'var(--red)', marginRight: 4 }}>
+                  <Icon name="trash" size={19} />
+                </button>
+                </div>
               ))}
             </div>
             )}
