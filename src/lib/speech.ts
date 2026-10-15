@@ -8,7 +8,7 @@ import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { GEMINI_TTS_MODEL, LS_KEYS } from './config';
 import { getGeminiKeys } from './ai';
 import { lsGet, lsSet } from './util';
-import { generateLocal, hasLocalAudio, isLocalReady, loadLocalModel } from './localTts';
+import { generateLocal, hasLocalAudio, isLocalReady, loadLocalModel, setLocalStage } from './localTts';
 
 export type TtsEngine = 'local' | 'gemini' | 'device';
 
@@ -396,12 +396,21 @@ export function stopSpeaking(): void {
 
 /** 설정 화면의 "소리 확인": 실패하면 이유를 던짐 (기기 음성으로 대신하지 않음) */
 export async function testGeminiVoice(): Promise<void> {
+  const mine = ++ticket;
+  stopCurrent();
+  unlockAudio(); // 버튼을 누른 순간에 재생기를 깨워 둠 (아이패드는 이래야 나중에 소리를 낼 수 있음)
   const blob = await requestGeminiAudio('Hello. This is a test of the voice.');
-  const url = URL.createObjectURL(blob);
-  const a = new Audio(url);
-  a.onended = () => URL.revokeObjectURL(url);
-  await a.play();
   geminiFailures = 0;
+  await playTestBlob(blob, mine);
+}
+
+/** 시험 소리 재생. 재생이 5초 넘게 막히면 이유를 알려 줌 */
+async function playTestBlob(blob: Blob, mine: number): Promise<void> {
+  const play = playBlob(blob, 1, mine);
+  const stuck = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('소리는 만들어졌지만 이 기기가 재생을 막았어요. 아래 버튼을 한 번 더 눌러 보세요(두 번째부터는 저장된 소리라 바로 재생돼요).')), 5000)
+  );
+  await Promise.race([play, stuck]);
 }
 
 /** 곧 들을 문장의 소리를 미리 만들어 저장 → 재생 버튼을 누르면 바로 시작 (하나씩 차례로, 실패는 조용히 무시) */
@@ -430,10 +439,11 @@ export function prefetchSpeech(texts: string[]): void {
 
 /** 설정 화면의 "소리 확인": 오픈소스 음성 (처음에는 모델을 내려받느라 시간이 걸림) */
 export async function testLocalVoice(): Promise<void> {
+  const mine = ++ticket;
+  stopCurrent();
+  unlockAudio(); // 버튼을 누른 순간에 재생기를 깨워 둠
   await loadLocalModel();
   const blob = await generateLocal('Hello. This is a test of the voice.');
-  const url = URL.createObjectURL(blob);
-  const a = new Audio(url);
-  a.onended = () => URL.revokeObjectURL(url);
-  await a.play();
+  setLocalStage('소리 만들기 완료, 재생하는 중…');
+  await playTestBlob(blob, mine);
 }

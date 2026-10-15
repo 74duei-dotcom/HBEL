@@ -23,6 +23,10 @@ export function getLocalStage(): string {
 }
 let localStage = '';
 let lastActivity = 0;
+export function setLocalStage(t: string): void {
+  localStage = t;
+  lastActivity = Date.now();
+}
 let lastBeat = 0;
 /** 작업 스레드의 마지막 신호 이후 지난 초 (신호가 멈추면 계산에 몰두 중이거나 꺼진 것) */
 export function getBeatAge(): number {
