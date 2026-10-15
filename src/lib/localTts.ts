@@ -57,6 +57,17 @@ function call(msg: { type: 'load' | 'generate'; text?: string }): Promise<Blob |
     const id = nextId++;
     pending.set(id, { resolve, reject });
     getWorker().postMessage({ id, voice: VOICE, ...msg });
+    if (msg.type === 'load') {
+      // 3분 안에 준비되지 않으면 무한 대기하지 않고 오류로 알림 (작업 스레드를 버리고 다음에 새로 시작)
+      setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        worker?.terminate();
+        worker = null;
+        loadP = null;
+        reject(new Error('음성 모델 준비가 너무 오래 걸려 중단했어요. 이 기기에서는 Gemini 음성을 써 주세요.'));
+      }, 180_000);
+    }
   });
 }
 
