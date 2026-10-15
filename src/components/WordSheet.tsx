@@ -10,6 +10,7 @@ import type { DocKind, VocabItem, WordInfo, WordSource } from '@/lib/types';
 import { cleanWord, errorMessage, nowIso } from '@/lib/util';
 import { Hangul } from './Hangul';
 import { SyllableGuide } from './SyllableGuide';
+import { SpellingGuide } from './SpellingGuide';
 import { Icon } from './Icon';
 
 export interface WordTarget {
@@ -167,6 +168,7 @@ export function WordSheet({ target, docId, docTitle, kind, cached, onCache, onCl
           {info && !loading && !!info.meaning && (
             <>
               <div style={{ fontSize: 18, fontWeight: 700 }}>{info.meaning}</div>
+              {data.prefs.hk && <SpellingGuide word={info.word} ipa={info.ipa} />}
               <SyllableGuide syllables={info.syllables} />
               {info.etymology && (
                 <div className="origin-box">

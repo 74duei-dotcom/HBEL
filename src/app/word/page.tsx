@@ -9,6 +9,7 @@ import { newCard } from '@/lib/srs';
 import { relativeDue } from '@/lib/util';
 import { Hangul } from '@/components/Hangul';
 import { SyllableGuide } from '@/components/SyllableGuide';
+import { SpellingGuide } from '@/components/SpellingGuide';
 import { Icon } from '@/components/Icon';
 
 function WordInner() {
@@ -76,6 +77,7 @@ function WordInner() {
             </button>
           </div>
           <div style={{ fontSize: 19, fontWeight: 700 }}>{v.meaning}</div>
+          {data.prefs.hk && <SpellingGuide word={v.word} ipa={v.ipa} />}
           <SyllableGuide syllables={v.syllables} />
           {v.etymology && (
             <div className="origin-box">

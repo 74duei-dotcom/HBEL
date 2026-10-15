@@ -190,3 +190,147 @@ export async function localPronunciation(word: string): Promise<LocalPron | null
     return null;
   }
 }
+
+// ───────── 철자 ↔ 소리 짝짓기 ("소리 풀이") ─────────
+// 단어의 철자 묶음(예: s · i · ng · er)마다 어떤 소리가 나는지 보여주기 위한 규칙.
+// IPA 소리 목록과 철자를 맞춰 보고(가장 자연스러운 짝을 점수로 고름), 맞추지 못하면 null을 돌려줌.
+
+export interface SpellChunk {
+  en: string; // 철자 묶음 (예: "ng")
+  ko: string; // 한글 소리 (예: "ㅇ"), 안 읽는 글자는 빈 문자열
+  kind: 'v' | 'c' | 'silent'; // 모음 / 자음 / 읽지 않는 글자
+  stress: boolean; // 강세 모음이 들어 있으면 true
+}
+
+/** 'V' = 아무 모음, 'R' = ɚ·ɝ(r이 섞인 모음), 그 외는 그 소리 그대로 */
+type Pat = string[];
+const SPELL: Record<string, Pat[]> = {};
+function addG(letters: string, pats: Pat[]) {
+  SPELL[letters] = [...(SPELL[letters] ?? []), ...pats];
+}
+const SINGLE_C: Record<string, Pat[]> = {
+  b: [['b']], c: [['k'], ['s']], d: [['d'], ['ɾ'], ['dʒ'], ['t']], f: [['f']], g: [['ɡ'], ['dʒ']], h: [['h']], j: [['dʒ']], k: [['k']],
+  l: [['l']], m: [['m']], n: [['n'], ['ŋ']], p: [['p']], q: [['k']], r: [['ɹ']], s: [['s'], ['z'], ['ʃ'], ['ʒ']], t: [['t'], ['ɾ'], ['tʃ']],
+  v: [['v']], w: [['w']], x: [['k', 's'], ['ɡ', 'z']], y: [['j']], z: [['z'], ['s'], ['ʒ']],
+};
+for (const [c, pats] of Object.entries(SINGLE_C)) {
+  addG(c, pats);
+  if (!'cqwxyh'.includes(c)) addG(c + c, pats); // ll, ss, tt …
+}
+addG('cc', [['k'], ['k', 's']]);
+const DIGRAPHS: [string, Pat[]][] = [
+  ['ch', [['tʃ'], ['k'], ['ʃ']]], ['sh', [['ʃ']]], ['th', [['θ'], ['ð'], ['t']]], ['ph', [['f']]], ['ng', [['ŋ'], ['ŋ', 'ɡ']]], ['nk', [['ŋ', 'k']]],
+  ['wh', [['w'], ['h']]], ['gh', [['ɡ'], ['f']]], ['ck', [['k']]], ['qu', [['k', 'w'], ['k']]], ['kn', [['n']]], ['wr', [['ɹ']]], ['gn', [['n']]],
+  ['mb', [['m']]], ['tch', [['tʃ']]], ['dg', [['dʒ']]], ['ti', [['ʃ']]], ['ci', [['ʃ']]], ['si', [['ʒ'], ['ʃ']]], ['sc', [['s'], ['s', 'k']]],
+  ['ps', [['s']]], ['rh', [['ɹ']]], ['ed', [['d'], ['t'], ['V', 'd']]], ['es', [['z'], ['V', 'z'], ['s']]],
+];
+DIGRAPHS.forEach(([g, p]) => addG(g, p));
+for (const v of 'aeiouy') addG(v, [['V'], ['j', 'V']]);
+for (const v of ['ai', 'ay', 'ea', 'ee', 'ei', 'ey', 'ie', 'oa', 'oi', 'oy', 'oo', 'ou', 'ow', 'au', 'aw', 'ui', 'ue', 'eu', 'ew', 'io', 'ia']) addG(v, [['V'], ['j', 'V']]);
+for (const v of ['ar', 'er', 'ir', 'or', 'ur', 'yr']) addG(v, [['R']]);
+addG('le', [['V', 'l'], ['l']]);
+addG('al', [['V', 'l']]);
+
+/** 읽지 않는 글자로 둘 때의 벌점 (낮을수록 흔한 묵음) */
+function silentCost(g: string, atEnd: boolean): number {
+  if (g === 'gh') return 1;
+  if (g === 'e' && atEnd) return 1;
+  return g.length === 1 ? 4 : Infinity;
+}
+
+function matchTok(p: string, t: string): boolean {
+  if (p === 'V') return !!VOWELS[t];
+  if (p === 'R') return t === 'ɚ' || t === 'ɝ';
+  return p === t;
+}
+
+interface PT {
+  t: string;
+  st: boolean;
+}
+
+/** 한 철자 묶음에 대응하는 소리들을 한글로 적기 */
+function chunkKo(toks: string[]): string {
+  const vi = toks.findIndex((t) => VOWELS[t]);
+  const parts: string[] = [];
+  let i = 0;
+  while (i < toks.length) {
+    const t = toks[i];
+    const v = VOWELS[t];
+    if (v) {
+      let [medial, extra] = v;
+      const prev = toks[i - 1];
+      if (prev === 'j') medial = SHY[medial] ?? medial;
+      else if (prev === 'w') medial = WGL[medial] ?? medial;
+      const next = toks[i + 1];
+      if (!extra && next && CODA[next] && i + 2 >= toks.length) {
+        parts.push(compose('ㅇ', medial, CODA[next]));
+        i += 2;
+        continue;
+      }
+      parts.push(compose('ㅇ', medial) + extra);
+    } else if ((t === 'j' || t === 'w') && vi > i) {
+      // 뒤 모음에 섞어 적음
+    } else if (t === 'w') parts.push('우');
+    else if (t === 'j') parts.push('이');
+    else parts.push(ALONE[t] ?? CONS[t] ?? '');
+    i++;
+  }
+  return parts.join('');
+}
+
+/** 단어 철자와 IPA를 묶음 단위로 짝지음. 짝을 못 찾으면 null */
+export function spellingChunks(word: string, ipa: string): SpellChunk[] | null {
+  const w = word.trim().toLowerCase();
+  if (!/^[a-z]+$/.test(w) || !ipa) return null;
+  const toks: PT[] = [];
+  let st = false;
+  for (const t of tokenize(ipa)) {
+    if (t === 'ˈ') st = true;
+    else if (t === 'ˌ') st = false;
+    else {
+      const vowel = !!VOWELS[t];
+      toks.push({ t: t === 'g' ? 'ɡ' : t, st: vowel && st });
+      if (vowel) st = false;
+    }
+  }
+  if (!toks.length) return null;
+  if (!toks.some((t) => t.st) && toks.filter((t) => VOWELS[t.t]).length === 1) toks.forEach((t) => (t.st = !!VOWELS[t.t]));
+
+  interface Cell {
+    cost: number;
+    chunks: { en: string; toks: PT[] }[];
+  }
+  const memo = new Map<number, Cell | null>();
+  const solve = (i: number, j: number): Cell | null => {
+    if (i === w.length) return j === toks.length ? { cost: 0, chunks: [] } : null;
+    const key = i * 1000 + j;
+    if (memo.has(key)) return memo.get(key) ?? null;
+    let best: Cell | null = null;
+    const take = (cost: number, en: string, used: PT[], ni: number, nj: number) => {
+      const rest = solve(ni, nj);
+      if (!rest) return;
+      const total = cost + 0.01 + rest.cost; // 묶음이 적을수록(= 긴 철자 묶음일수록) 유리
+      if (!best || total < best.cost) best = { cost: total, chunks: [{ en, toks: used }, ...rest.chunks] };
+    };
+    for (let len = 1; len <= 3 && i + len <= w.length; len++) {
+      const g = w.slice(i, i + len);
+      for (const pat of SPELL[g] ?? []) {
+        if (j + pat.length > toks.length) continue;
+        if (pat.every((p, k) => matchTok(p, toks[j + k].t))) take(0, g, toks.slice(j, j + pat.length), i + len, j + pat.length);
+      }
+      const sc = silentCost(g, i + len === w.length);
+      if (sc < Infinity) take(sc, g, [], i + len, j);
+    }
+    memo.set(key, best);
+    return best;
+  };
+  const res = solve(0, 0);
+  if (!res) return null;
+  return res.chunks.map((c) => ({
+    en: c.en,
+    ko: c.toks.length ? chunkKo(c.toks.map((p) => p.t)) : '',
+    kind: c.toks.length === 0 ? 'silent' : c.toks.some((p) => VOWELS[p.t]) ? 'v' : 'c',
+    stress: c.toks.some((p) => p.st),
+  }));
+}
