@@ -10,7 +10,7 @@ import { hasValidToken } from '@/lib/google';
 import { createYouTubePlayer, formatTime, loadVideo, saveVideo, type YTPlayer } from '@/lib/video';
 import { speak, stopSpeaking, canSpeak, prefetchSpeech, TTS_FALLBACK_EVENT } from '@/lib/speech';
 import type { DocAnalysisCache, DocContent, GrammarAnalysis, WordInfo } from '@/lib/types';
-import { cleanWord, errorMessage, tokenize } from '@/lib/util';
+import { cleanWord, errorMessage, tokenAtFraction, tokenize } from '@/lib/util';
 import { AaMenu } from '@/components/AaMenu';
 import { Hangul } from '@/components/Hangul';
 import { GrammarSheet, type GrammarTarget } from '@/components/GrammarSheet';
@@ -364,26 +364,14 @@ function ReaderInner() {
     setPreparing(true);
     // 읽는 위치(글자 비율) → 지금 읽고 있는 단어 번호로 바꿔 표시
     const toks = tokenize(s);
-    const total = toks.reduce((n, t) => n + t.length + 1, 0);
     const done = () => {
       setPlaying(false);
       setPreparing(false);
       setSpeakTok(-1);
     };
     setSpeakTok(0);
-    speak(s, speed, done, (f) => {
-      const pos = f * total;
-      let acc = 0;
-      let idx = toks.length - 1;
-      for (let k = 0; k < toks.length; k++) {
-        acc += toks[k].length + 1;
-        if (pos < acc) {
-          idx = k;
-          break;
-        }
-      }
-      setSpeakTok(idx);
-    }, () => setPreparing(false));
+    // 진행 비율은 단어별 읽는 시간(음절·쉼) 가중치 기준 → 같은 기준으로 단어 번호를 찾음
+    speak(s, speed, done, (f) => setSpeakTok(tokenAtFraction(toks, f)), () => setPreparing(false), cache?.sentences[keyOf(page, i)]?.br ?? []);
   };
 
   const togglePlay = () => {

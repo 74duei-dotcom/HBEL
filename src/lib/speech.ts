@@ -7,7 +7,7 @@
 import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { GEMINI_TTS_MODEL, LS_KEYS } from './config';
 import { getGeminiKeys } from './ai';
-import { lsGet, lsSet } from './util';
+import { lsGet, lsSet, tokenize, tokenTimings } from './util';
 import { generateLocal, hasLocalAudio, isLocalReady, loadLocalModel, setLocalStage } from './localTts';
 
 export type TtsEngine = 'local' | 'gemini' | 'device';
@@ -81,7 +81,21 @@ function deviceSpeak(text: string, rate: number, mine: number, onEnd?: () => voi
   const v = pickVoice();
   if (v) u.voice = v;
   if (onStart) u.onstart = () => mine === ticket && onStart();
-  if (onProgress) u.onboundary = (e) => mine === ticket && onProgress(e.charIndex / Math.max(1, text.length));
+  if (onProgress) {
+    // 기기 음성은 읽는 글자 위치를 정확히 알려 줌 → 그 단어의 가중치 구간 가운데 값으로 변환 (화면 쪽 환산과 같은 기준)
+    const starts: number[] = [];
+    for (const m of text.matchAll(/\S+/g)) starts.push(m.index ?? 0);
+    const { dur, gap } = tokenTimings(tokenize(text));
+    const cum = [0];
+    dur.forEach((d, i) => cum.push(cum[i] + d + gap[i]));
+    const total = cum[cum.length - 1] || 1;
+    u.onboundary = (e) => {
+      if (mine !== ticket) return;
+      let k = starts.length - 1;
+      while (k > 0 && starts[k] > e.charIndex) k--;
+      onProgress(Math.max(0, (cum[k] + dur[k] / 2) / total));
+    };
+  }
   if (onEnd) {
     // 취소된 이전 낭독의 종료 알림이 새 낭독의 상태를 건드리지 않게, 최신 요청일 때만 알림
     const done = () => {
@@ -273,9 +287,136 @@ export function canSpeak(): boolean {
   return canDeviceSpeak() || getGeminiKeys().length > 0;
 }
 
+/**
+ * 소리 파형을 분석해 "소리 시간(초) → 이 조각 안에서 읽은 비율(0~1)" 변환 함수를 만듦.
+ * - 앞뒤 무음을 뺀 실제 말하는 구간만 기준으로 삼음
+ * - 쉼표·마침표 자리의 실제 쉬는 구간을 찾아, 개수가 맞으면 구절마다 시작·끝을 맞춤
+ */
+async function buildWarp(blob: Blob, tokens: string[], breaks: Set<number>): Promise<((t: number) => number) | null> {
+  try {
+    const AC = (window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext) as typeof AudioContext | undefined;
+    if (!AC || !tokens.length) return null;
+    const ctx = new AC();
+    let buf: AudioBuffer;
+    try {
+      buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    } finally {
+      void ctx.close().catch(() => undefined);
+    }
+    const data = buf.getChannelData(0);
+    const win = Math.max(1, Math.round(buf.sampleRate * 0.01)); // 10ms
+    const n = Math.floor(data.length / win);
+    if (n < 5) return null;
+    const rms = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let j = i * win; j < (i + 1) * win; j++) s += data[j] * data[j];
+      rms[i] = Math.sqrt(s / win);
+    }
+    const sorted = Array.from(rms).sort((x, y) => x - y);
+    const thr = Math.max(0.004, sorted[Math.floor(n * 0.95)] * 0.06);
+    let first = 0;
+    while (first < n && rms[first] < thr) first++;
+    let last = n - 1;
+    while (last > first && rms[last] < thr) last--;
+    if (last - first < 5) return null;
+    const S = first * 0.01;
+    const E = (last + 1) * 0.01;
+    // 말하는 구간 안의 쉬는 구간(0.1초 이상)
+    const pauses: { s: number; e: number }[] = [];
+    let run = -1;
+    for (let i = first; i <= last + 1; i++) {
+      const quiet = i <= last && rms[i] < thr;
+      if (quiet && run < 0) run = i;
+      if (!quiet && run >= 0) {
+        if (i - run >= 15) pauses.push({ s: run * 0.01, e: i * 0.01 });
+        run = -1;
+      }
+    }
+    // 글자 쪽 가중치: 구절 경계(쉼표·마침표 뒤)와 그 위치의 누적값
+    const { dur, gap } = tokenTimings(tokens);
+    const cum = [0]; // cum[i] = i번째 단어가 시작하는 위치 (쉼 포함)
+    dur.forEach((d, i) => cum.push(cum[i] + d + gap[i]));
+    const audible = Math.max(0.01, cum[tokens.length] - gap[tokens.length - 1]);
+    // 실제로 찾은 쉼(문장부호가 없어도 음성이 구절 사이에서 쉬므로)이 어느 단어 뒤인지, 구절별 말한 시간이 단어 가중치와 가장 잘 맞도록 고름
+    const N = tokens.length;
+    const use = [...pauses].sort((p, q) => q.e - q.s - (p.e - p.s)).slice(0, Math.max(0, N - 1)).sort((p, q) => p.s - q.s); // 너무 많으면 긴 쉼만
+    const K = use.length;
+    const pts: [number, number][] = [[S, 0]];
+    if (K > 0) {
+      const W = [0];
+      dur.forEach((d, i) => W.push(W[i] + d));
+      const D: number[] = []; // 쉼 사이 실제 말한 시간
+      let pauseSum = 0;
+      use.forEach((p, j) => {
+        const t0 = j === 0 ? S : use[j - 1].e;
+        D.push(p.s - t0);
+        pauseSum += p.e - p.s;
+      });
+      D.push(E - use[K - 1].e);
+      const r = Math.max(1e-6, E - S - pauseSum) / W[N]; // 가중치 1당 초
+      const hasHints = breaks.size > 0 || gap.some((g) => g > 0);
+      const INF = 1e18;
+      const f: number[][] = Array.from({ length: K + 1 }, () => new Array(N + 1).fill(INF));
+      const from: number[][] = Array.from({ length: K + 1 }, () => new Array(N + 1).fill(0));
+      f[0][0] = 0;
+      for (let j = 1; j <= K; j++) {
+        for (let b = j; b <= N - (K - j) - 1; b++) {
+          const hint = !hasHints || gap[b - 1] > 0 || breaks.has(b - 1) ? 0 : 0.5; // 표시된 위치(쉼표·마침표·끊어 읽기)가 아닌 곳에서 쉬었다고 보면 벌점
+          for (let a = j - 1; a < b; a++) {
+            if (f[j - 1][a] >= INF) continue;
+            const c = f[j - 1][a] + (D[j - 1] - (W[b] - W[a]) * r) ** 2 + hint;
+            if (c < f[j][b]) {
+              f[j][b] = c;
+              from[j][b] = a;
+            }
+          }
+        }
+      }
+      let best = INF;
+      let bb = K;
+      for (let b = K; b <= N - 1; b++) {
+        if (f[K][b] >= INF) continue;
+        const c = f[K][b] + (D[K] - (W[N] - W[b]) * r) ** 2;
+        if (c < best) {
+          best = c;
+          bb = b;
+        }
+      }
+      const cuts: number[] = []; // 각 쉼 앞의 마지막 단어 번호
+      for (let j = K, b = bb; j >= 1; j--) {
+        cuts.unshift(b - 1);
+        b = from[j][b];
+      }
+      use.forEach((p, j) => {
+        const i = cuts[j];
+        pts.push([p.s, cum[i] + dur[i] - 1e-3]); // 쉬는 동안은 방금 읽은 단어를 유지
+        pts.push([p.e - 0.04, cum[i + 1]]); // 다음 말이 시작되기 직전에 다음 단어로
+      });
+    }
+    pts.push([E, audible]);
+    return (t: number) => {
+      if (t <= pts[0][0]) return 0;
+      for (let k = 1; k < pts.length; k++) {
+        if (t <= pts[k][0]) {
+          const [t0, w0] = pts[k - 1];
+          const [t1, w1] = pts[k];
+          return (w0 + ((t - t0) / Math.max(1e-6, t1 - t0)) * (w1 - w0)) / audible;
+        }
+      }
+      return 1;
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** 만들어 둔 소리를 재생 */
-async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void, onStart?: () => void): Promise<void> {
+async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => void, onProgress?: (f: number) => void, onStart?: () => void, tokens?: string[], breaks: Set<number> = new Set()): Promise<void> {
   if (mine !== ticket) return; // 그 사이 다른 소리를 요청했거나 멈춤
+  // 소리를 미리 분석해 실제로 말하기 시작·끝나는 때와 쉬는 구간을 찾음 (분석이 안 되면 null → 전체 길이 비율 사용)
+  const warp = onProgress && tokens ? await buildWarp(blob, tokens, breaks) : null;
+  if (mine !== ticket) return;
   const url = URL.createObjectURL(blob);
   const a = player ?? new Audio();
   player = a;
@@ -290,7 +431,7 @@ async function playBlob(blob: Blob, rate: number, mine: number, onEnd?: () => vo
   let raf = 0;
   const tick = () => {
     if (mine !== ticket || current !== a) return;
-    if (onProgress && a.duration > 0) onProgress(a.currentTime / a.duration);
+    if (onProgress && a.duration > 0) onProgress(warp ? warp(a.currentTime) : a.currentTime / a.duration);
     raf = requestAnimationFrame(tick);
   };
   const done = () => {
@@ -323,7 +464,7 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
     }
     // 저장된 소리가 있으면 통째로, 없으면 조각내어 첫 조각부터 재생 (기기에서 직접 만들기 때문에 짧게 나눌수록 빨리 시작)
     const chunks = (await hasLocalAudio(t)) ? [t] : splitForSpeech(t, 60, 140, 80);
-    await playChunked(chunks, t.length, generateLocal, rate, mine, onEnd, onProgress, onStart);
+    await playChunked(chunks, generateLocal, rate, mine, onEnd, onProgress, onStart);
     return true;
   } catch (e) {
     lastTtsError = e instanceof Error ? e.message : String(e);
@@ -334,7 +475,6 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
 /** 조각들을 차례로 재생: 조각을 재생하는 동안 다음 조각을 미리 만듦. 마지막까지 읽으면 onEnd */
 async function playChunked(
   chunks: string[],
-  total: number,
   getAudio: (t: string) => Promise<Blob>,
   rate: number,
   mine: number,
@@ -345,20 +485,29 @@ async function playChunked(
   if (chunks.length === 1) {
     const blob = await getAudio(chunks[0]);
     if (mine !== ticket) return;
-    await playBlob(blob, rate, mine, onEnd, onProgress, onStart);
+    await playBlob(blob, rate, mine, onEnd, onProgress, onStart, tokenize(chunks[0]), speakBreaks);
     return;
   }
-  let offset = 0;
+  // 조각별 시작 위치·실제 소리 길이를 단어별 읽는 시간(음절·쉼 기준) 가중치로 계산 → 글자 수보다 실제 소리와 잘 맞음
+  const perChunk = chunks.map((c) => tokenize(c).length);
+  const { dur, gap } = tokenTimings(chunks.flatMap((c) => tokenize(c)));
+  const cum = [0];
+  dur.forEach((d, i) => cum.push(cum[i] + d + gap[i]));
+  const total = cum[cum.length - 1] || 1;
+  let tokStart = 0;
   for (let k = 0; k < chunks.length; k++) {
     const c = chunks[k];
+    const a = tokStart;
+    const b = a + perChunk[k];
+    tokStart = b;
+    const base = cum[a];
+    const audible = Math.max(0.01, cum[b] - cum[a] - (b > a ? gap[b - 1] : 0));
     for (const nx of chunks.slice(k + 1, k + 3)) void getAudio(nx).catch(() => undefined); // 재생 중에 다음 두 조각 준비 (끊김 방지)
     const blob = await getAudio(c);
     if (mine !== ticket) return;
-    const base = offset;
     await new Promise<void>((resolve, reject) => {
-      playBlob(blob, rate, mine, () => resolve(), onProgress ? (f) => onProgress((base + f * c.length) / total) : undefined, k === 0 ? onStart : undefined).catch(reject);
+      playBlob(blob, rate, mine, () => resolve(), onProgress ? (f) => onProgress((base + f * audible) / total) : undefined, k === 0 ? onStart : undefined, tokenize(c), new Set([...speakBreaks].filter((x) => x >= a && x < b).map((x) => x - a))).catch(reject);
     });
-    offset += c.length + 1;
     if (mine !== ticket) return;
   }
   if (mine === ticket) onEnd?.();
@@ -383,7 +532,11 @@ function splitForSpeech(text: string, first = 90, rest = 160, minLen = 140): str
 
 /** onProgress: 지금 읽는 위치를 글자 수 기준 0~1 비율로 알려 줌 (읽는 단어 표시용) */
 /** onStart: 소리가 실제로 나오기 시작한 순간 (준비 중 표시를 끄는 데 사용) */
-export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (f: number) => void, onStart?: () => void): void {
+/** 지금 읽는 문장의 끊어 읽기 위치(단어 번호). 소리의 실제 쉼이 어느 단어 뒤인지 정할 때 참고 */
+let speakBreaks = new Set<number>();
+
+export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (f: number) => void, onStart?: () => void, breaks: number[] = []): void {
+  speakBreaks = new Set(breaks);
   const t = text.trim();
   if (!t) {
     onEnd?.();
@@ -423,7 +576,7 @@ export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (
       // 긴 글은 문장 단위로 나눠, 첫 조각이 만들어지면 바로 재생
       geminiFailures = 0;
       lastTtsError = '';
-      await playChunked(splitForSpeech(t), t.length, getGeminiAudio, rate, mine, onEnd, onProgress, onStart);
+      await playChunked(splitForSpeech(t), getGeminiAudio, rate, mine, onEnd, onProgress, onStart);
     } catch (e) {
       if (mine !== ticket) return;
       geminiFailures++;

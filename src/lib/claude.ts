@@ -40,7 +40,7 @@ export const KIND_LABEL: Record<DocKind, string> = {
 };
 
 /** 발음 규칙을 크게 바꿀 때마다 올림 → 이보다 낮은 버전으로 저장된 단어·문장은 다시 분석함 */
-export const HANGUL_VERSION = 2;
+export const HANGUL_VERSION = 3;
 
 const HANGUL_RULES = `Korean pronunciation guide ("hangul") rules:
 - Write how a native American English speaker actually says it, in Hangul.
@@ -175,8 +175,9 @@ export async function analyzeSentences(sentences: string[], kind: DocKind, gloss
 For each item you get the sentence as an array of tokens (split by spaces, punctuation attached).
 Return ONLY a JSON array: [{"i": number, "translation": string, "hk": string[], "br": number[]}]
 - "translation": natural, accurate Korean translation of the whole sentence. Use standard Korean medical terminology.
-- "hk": Korean pronunciation for EACH token, same length and order as tokens. Reflect connected speech (linking) across word boundaries,
-  e.g. tokens ["a","common","cause","of"] -> ["어","*카*먼","*커*","저브"]; ["look","at"] -> ["*루*","캣"]. Never include punctuation in hk.
+- "hk": Korean pronunciation for EACH token. The array MUST have exactly the same length and order as tokens: one entry per token, never merge two tokens into one entry and never split one token into two.
+  Write each token's own pronunciation only (do not attach the next word's sound), e.g. tokens ["a","common","cause","of"] -> ["어","*카*먼","*코*즈","어브"].
+  A token like "L4-L5" or "L5-S1" is ONE token: give ONE entry that reads the whole thing (e.g. "엘포엘파이브"). Never include punctuation in hk.
 - "br": phrase-break (pause) positions for reading aloud, as 0-based token indices; a pause comes right AFTER that token. Break between meaningful thought groups (about 3-7 words each): before prepositional phrases, relative/subordinate clauses and conjunctions, and after commas or a long subject. Never put a break after the last token. Short sentences may have [].
 ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLines}` : ''}`;
   const user = JSON.stringify(items);
@@ -186,8 +187,8 @@ ${HANGUL_RULES}${glossLines ? `\nUse these Korean terms consistently:\n${glossLi
     // i 번호가 맞는 항목을 찾고, 없으면 같은 순서의 항목을 사용
     const found = Array.isArray(arr) ? (arr.find((a) => Number(a?.i) === it.i) ?? (arr.length === items.length ? arr[pos] : undefined)) : undefined;
     const hk = Array.isArray(found?.hk) ? found!.hk.map((h) => String(h ?? '')) : [];
-    // 단어 개수가 안 맞으면 길이를 맞춰 화면이 깨지지 않게 함
-    const fixed = it.tokens.map((_, k) => hk[k] ?? '');
+    // 단어 개수가 안 맞으면 뒤 단어들이 한 칸씩 밀려 엉뚱한 발음이 붙으므로, 빈 값으로 두어 아래에서 다시 요청하게 함
+    const fixed = hk.length === it.tokens.length ? hk : it.tokens.map(() => '');
     const last = it.tokens.length - 1;
     const br = Array.isArray(found?.br)
       ? [...new Set(found!.br.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < last))].sort((a, b) => a - b)

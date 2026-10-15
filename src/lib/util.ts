@@ -36,6 +36,50 @@ export function tokenize(sentence: string): string[] {
   return sentence.split(/\s+/).filter(Boolean);
 }
 
+/** 영어 한 토큰을 소리 내어 읽을 때 걸리는 시간의 상대값(음절 수 기준). 숫자·약어는 글자(숫자) 하나하나를 읽으므로 그 개수만큼 */
+function spokenUnits(raw: string): number {
+  const parts = raw.split(/[-–—/]/).map((p) => p.replace(/[^A-Za-z0-9]/g, '')).filter(Boolean);
+  let n = 0;
+  for (const p of parts) {
+    if (/\d/.test(p) || (/^[A-Z]{2,}$/.test(p) && p.length <= 5)) {
+      n += p.length; // 예: L4 → "엘 포", MRI → "엠 알 아이"
+    } else {
+      const g = p.toLowerCase().replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '').replace(/^y/, '').match(/[aeiouy]{1,2}/g);
+      n += Math.max(1, g ? g.length : 1);
+    }
+  }
+  return Math.max(1, n);
+}
+
+/** 토큰별 읽는 시간(dur)과 그 뒤의 쉬는 시간(gap)의 상대값. 마지막 토큰 뒤에는 쉼이 없음 (읽는 단어 표시용) */
+export function tokenTimings(tokens: string[]): { dur: number[]; gap: number[]; syl: number[] } {
+  const syl = tokens.map((t) => spokenUnits(t));
+  const dur = syl.map((n) => n + 0.35);
+  const gap = tokens.map((t, i) => {
+    if (i === tokens.length - 1) return 0;
+    if (/[.!?]["')\]]*$/.test(t)) return 1.6;
+    if (/[,;:]["')\]]*$/.test(t)) return 1.0;
+    if (/[-–—]$/.test(t)) return 0.5;
+    return 0;
+  });
+  return { dur, gap, syl };
+}
+
+/** 가중치 누적 위치(0~1)에 해당하는 토큰 번호 */
+export function tokenAtFraction(tokens: string[], f: number): number {
+  const { dur, gap } = tokenTimings(tokens);
+  const total = dur.reduce((a, b) => a + b, 0) + gap.reduce((a, b) => a + b, 0);
+  const pos = f * total;
+  let acc = 0;
+  for (let k = 0; k < tokens.length; k++) {
+    acc += dur[k];
+    if (pos < acc) return k;
+    acc += gap[k]; // 쉬는 동안은 방금 읽은 단어를 그대로 표시
+    if (pos < acc) return k;
+  }
+  return Math.max(0, tokens.length - 1);
+}
+
 /** 강세 표시 "익스*텐*션" → [{t:'익스'},{t:'텐',strong:true},{t:'션'}] */
 export function stressSegments(s: string): { t: string; strong: boolean }[] {
   if (!s) return [];
