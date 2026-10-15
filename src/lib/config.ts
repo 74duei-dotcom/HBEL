@@ -26,6 +26,7 @@ export const LS_KEYS = {
   googleToken: 'el.googleToken',
   googleConnected: 'el.googleConnected',
   setupDone: 'el.setupDone',
+  localModelDone: 'el.localModelDone', // 오픈소스 음성 모델을 이 기기에 한 번 내려받았는지 ('1')
 } as const;
 
 export function isGoogleConfigured(): boolean {

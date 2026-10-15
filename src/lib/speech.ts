@@ -8,7 +8,7 @@ import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { GEMINI_TTS_MODEL, LS_KEYS } from './config';
 import { getGeminiKeys } from './ai';
 import { lsGet, lsSet, tokenize, tokenTimings } from './util';
-import { generateLocal, hasLocalAudio, isLocalReady, loadLocalModel, setLocalStage } from './localTts';
+import { generateLocal, hasLocalAudio, isLocalReady, loadLocalModel, setLocalStage, wasModelDownloaded } from './localTts';
 
 export type TtsEngine = 'local' | 'gemini' | 'device';
 
@@ -459,7 +459,11 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
       // 핸드폰은 직접 고르지 않았다면 무거운 모델을 내려받지 않고 바로 다음 방법으로 넘어감
       if (isMobileDevice() && !chosenLocal()) return false;
       void loadLocalModel().catch(() => undefined);
-      notifyFallback('오픈소스 음성 모델을 처음 한 번 내려받는 중이에요(약 90MB). 준비되면 자동으로 자연스러운 소리로 바뀌어요.');
+      notifyFallback(
+        wasModelDownloaded()
+          ? '저장해 둔 오픈소스 음성 모델을 불러오는 중이에요(앱을 켠 뒤 처음 한 번, 몇 초). 준비되면 자동으로 자연스러운 소리로 바뀌어요.'
+          : '오픈소스 음성 모델을 처음 한 번 내려받는 중이에요(약 90MB). 준비되면 자동으로 자연스러운 소리로 바뀌어요.'
+      );
       return false;
     }
     // 저장된 소리가 있으면 통째로, 없으면 조각내어 첫 조각부터 재생 (기기에서 직접 만들기 때문에 짧게 나눌수록 빨리 시작)
@@ -638,6 +642,12 @@ export function prefetchSpeech(texts: string[]): void {
       }
     }
   })();
+}
+
+/** 앱을 켤 때: 오픈소스 음성을 쓰고 모델이 이미 저장돼 있으면 미리 불러와 첫 읽기부터 바로 자연스러운 소리가 나게 함 */
+export function warmUpLocalVoice(): void {
+  if (getTtsEngine() !== 'local' || !wasModelDownloaded() || isLocalReady()) return;
+  void loadLocalModel().catch(() => undefined);
 }
 
 /** 설정 화면의 "소리 확인": 오픈소스 음성 (처음에는 모델을 내려받느라 시간이 걸림) */

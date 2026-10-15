@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { StoreProvider } from '@/lib/store';
 import { withBase } from '@/lib/config';
+import { warmUpLocalVoice } from '@/lib/speech';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -33,7 +34,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register(withBase('/sw.js'), { scope: withBase('/') }).catch(() => undefined);
     }
-    return () => window.removeEventListener('beforeinstallprompt', onPrompt);
+    // 오픈소스 음성 모델이 이미 저장돼 있으면 미리 불러옴 (앱을 켤 때마다 기계음으로 시작하는 것 방지)
+    const warm = setTimeout(warmUpLocalVoice, 1500);
+    return () => {
+      clearTimeout(warm);
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+    };
   }, []);
 
   return <StoreProvider>{children}</StoreProvider>;

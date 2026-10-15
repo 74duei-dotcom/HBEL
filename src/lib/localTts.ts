@@ -4,6 +4,8 @@
 // - 한 번 만든 문장 소리는 기기에 저장해 다시 쓰므로 같은 문장은 즉시 재생
 // - 무거운 계산은 별도 작업 스레드(kokoroWorker.ts)에서 해서 화면이 멈추지 않음
 import { get as idbGet, set as idbSet } from 'idb-keyval';
+import { LS_KEYS } from './config';
+import { lsGet, lsSet } from './util';
 
 const VOICE = 'af_heart'; // 미국 영어 여성 음성 (Kokoro 음성 중 품질 최상)
 const AUDIO_VER = 'k2'; // 무음 자르기 적용 이후 버전
@@ -40,6 +42,10 @@ export function getBeatAge(): number {
 
 export function isLocalReady(): boolean {
   return ready;
+}
+/** 이 기기에서 모델을 이미 한 번 내려받았는지 (앱을 다시 켜도 유지됨 → 이때는 저장본을 불러오기만 하면 됨) */
+export function wasModelDownloaded(): boolean {
+  return lsGet(LS_KEYS.localModelDone) === '1';
 }
 export function getLocalError(): string {
   return loadError;
@@ -120,6 +126,7 @@ export function loadLocalModel(): Promise<void> {
     .then(() => {
       ready = true;
       loadError = '';
+      lsSet(LS_KEYS.localModelDone, '1');
     })
     .catch((e) => {
       loadP = null; // 다음에 다시 시도할 수 있게
