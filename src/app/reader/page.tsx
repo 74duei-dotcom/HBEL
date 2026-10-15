@@ -139,9 +139,19 @@ function ReaderInner() {
   useEffect(() => {
     if (doc && content && !initDone.current) {
       initDone.current = true;
-      setPage(Math.min(doc.lastPage, content.pages.length - 1));
+      // 검색 결과에서 왔으면(?p=쪽&s=문장) 그 문장부터 시작
+      const qp = params.get('p');
+      const qs = params.get('s');
+      const last = content.pages.length - 1;
+      if (qp !== null && /^\d+$/.test(qp)) {
+        const p = Math.min(Number(qp), last);
+        setPage(p);
+        if (qs !== null && /^\d+$/.test(qs)) setCur(Math.min(Number(qs), Math.max(0, (content.pages[p]?.sentences.length ?? 1) - 1)));
+      } else {
+        setPage(Math.min(doc.lastPage, last));
+      }
     }
-  }, [doc, content]);
+  }, [doc, content, params]);
 
   const sentences = useMemo(() => content?.pages[page]?.sentences ?? [], [content, page]);
 

@@ -18,6 +18,10 @@ export interface LibraryDoc {
   duration?: number; // 강의 영상 길이(초). 있으면 영상 자료
   youtubeId?: string; // 유튜브 영상이면 그 ID
   error?: string;
+  doi?: string; // 논문 DOI (PDF 첫머리에서 찾음)
+  authors?: string; // 저자 (Crossref)
+  journal?: string; // 학술지 이름 (Crossref)
+  year?: number; // 발행 연도 (Crossref)
   createdAt: string;
   updatedAt: string;
   deleted?: boolean;

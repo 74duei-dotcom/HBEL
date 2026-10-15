@@ -8,12 +8,15 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "npx serve out -l 3000",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tesseract.js-data/eng": "^1.0.0",
     "idb-keyval": "^6.2.1",
     "kokoro-js": "^1.2.1",
+    "minisearch": "^7.2.0",
     "next": "^16.0.0",
     "pdfjs-dist": "^5.4.0",
     "phonemizer": "^1.2.1",
@@ -26,6 +29,9 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.9.0"
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.1",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.11"
   }
 }

@@ -62,9 +62,17 @@ export default function HomePage() {
             </div>
             <h1 className="page-title">내 자료</h1>
           </div>
-          <Link href="/settings/" className="icon-btn outline" aria-label="설정">
-            <Icon name="settings" size={20} />
-          </Link>
+          <div className="row" style={{ gap: 8 }}>
+            <Link href="/stats/" className="icon-btn outline" aria-label="학습 통계">
+              <Icon name="cards" size={20} />
+            </Link>
+            <Link href="/search/" className="icon-btn outline" aria-label="전체 검색">
+              <Icon name="search" size={20} />
+            </Link>
+            <Link href="/settings/" className="icon-btn outline" aria-label="설정">
+              <Icon name="settings" size={20} />
+            </Link>
+          </div>
         </div>
 
         {mounted && !setupDone && (
@@ -153,6 +161,11 @@ export default function HomePage() {
                       {d.status === 'ready' && d.lastPage > 0 ? ` · ${d.lastPage + 1}쪽까지 읽음` : ''}
                       {d.status === 'ready' && d.lastPage === 0 ? ' · 아직 안 읽음' : ''}
                     </span>
+                    {(d.journal || d.authors) && (
+                      <span className="small" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {[d.authors, d.journal, d.year].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
                     {d.status === 'error' && <span className="small" style={{ color: 'var(--red)' }}>{d.error ? d.error.slice(0, 60) : '처리하지 못했어요'} · 눌러서 다시 올리기</span>}
                     {d.status === 'processing' && <span className="small">처리가 끝나면 읽을 수 있어요 · 눌러서 진행 보기</span>}
                   </span>

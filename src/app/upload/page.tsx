@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import { useStore, saveDocContent } from '@/lib/store';
 import { extractPdf, guessTitle } from '@/lib/pdf';
 import { isVideoFile, parseYoutubeId, saveVideo, transcribeVideo, transcribeYoutube, youtubeTitle } from '@/lib/video';
+import { findDoi, fetchPaperMeta } from '@/lib/doi';
 import { getGeminiKeys } from '@/lib/ai';
 import { uploadFile, downloadFile, pickFromDrive } from '@/lib/drive';
 import { hasValidToken } from '@/lib/google';
@@ -196,6 +197,17 @@ export default function UploadPage() {
         createdAt: now,
         updatedAt: now,
       };
+      const doi = findDoi(res.pages);
+      if (doi) {
+        doc.doi = doi;
+        const meta = await fetchPaperMeta(doi);
+        if (meta) {
+          if (meta.title && kind === 'paper') doc.title = meta.title;
+          doc.authors = meta.authors;
+          doc.journal = meta.journal;
+          doc.year = meta.year;
+        }
+      }
       let warn = res.ocrPages > 0 ? `${res.ocrPages}쪽을 글자 인식으로 읽었어요. 잘못 읽은 글자가 있을 수 있어요.` : res.scanned ? '글자가 적어 스캔본일 수 있어요. 빠진 문장이 있으면 글자 인식을 켜고 다시 올려 주세요.' : '';
       if (job.file && hasValidToken()) {
         patch(job.key, { stage: 'uploading', progress: 0 });

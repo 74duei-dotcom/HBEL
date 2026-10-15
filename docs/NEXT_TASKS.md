@@ -58,3 +58,10 @@
 - [x] 알파벳 소리표: 홈·발음 연습 화면 카드 → /pronounce/?view=alphabet (글자 이름·단어 속 소리·팁, 같은 글자 다른 소리, 두 글자 소리; src/lib/alphabet.ts, src/components/AlphabetSheet.tsx)
 - [ ] (선택) PC 도우미(Python): 드라이브 폴더 감시, 영상 압축 — 큰 영상(700MB 초과)이 필요해질 때만
 - [ ] (선택) Capacitor로 APK 만들기 — Android용 OAuth 클라이언트 별도 필요
+
+## 4단계 (기능 보강)
+- [x] 단어장 Anki용 파일 내보내기 (src/lib/export.ts, 단어장 화면 버튼)
+- [x] 전체 검색 /search (MiniSearch, 내 자료 문장 + 단어장, 결과 누르면 리더에서 그 문장으로 이동)
+- [x] ESLint(eslint.config.mjs)·Vitest(tests/) 도입, 배포 전 typecheck·lint·test 자동 실행
+- [x] 논문 DOI로 제목·저자·저널·연도 자동 채우기 (src/lib/doi.ts, Crossref) — 실제 논문 PDF로 점검 필요
+- [x] 학습 통계 /stats (연속 학습일, 14일 저장·복습, 7일 복습 예정)

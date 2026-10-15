@@ -6,6 +6,7 @@ import { activeDocs, activeVocab, useStore } from '@/lib/store';
 import { buildQueue } from '@/lib/srs';
 import type { VocabItem } from '@/lib/types';
 import { relativeDue } from '@/lib/util';
+import { downloadText, vocabToAnkiText } from '@/lib/export';
 import { TabBar } from '@/components/TabBar';
 import { AaMenu } from '@/components/AaMenu';
 import { Hangul } from '@/components/Hangul';
@@ -95,6 +96,15 @@ export default function VocabPage() {
               ))}
             </select>
           </label>
+        )}
+
+        {list.length > 0 && (
+          <button
+            className="btn"
+            onClick={() => downloadText(`영어서재-단어장-${new Date().toISOString().slice(0, 10)}.txt`, vocabToAnkiText(list))}
+          >
+            Anki용 파일로 내보내기 ({list.length}개)
+          </button>
         )}
 
         {list.length === 0 ? (

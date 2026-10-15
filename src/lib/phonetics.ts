@@ -151,7 +151,8 @@ export function ipaToSyllables(ipa: string): Syllable[] {
         }
       }
     }
-    let [medial, extra] = VOWELS[it.t];
+    const [medial0, extra] = VOWELS[it.t];
+    let medial = medial0;
     if (cl.length && cl[cl.length - 1] === 'ʃ') medial = SHY[medial] ?? medial;
     if (glide === 'j') medial = SHY[medial] ?? medial;
     if (glide === 'w') medial = WGL[medial] ?? medial;
@@ -258,7 +259,8 @@ function chunkKo(toks: string[]): string {
     const t = toks[i];
     const v = VOWELS[t];
     if (v) {
-      let [medial, extra] = v;
+      const [medial0, extra] = v;
+      let medial = medial0;
       const prev = toks[i - 1];
       if (prev === 'j') medial = SHY[medial] ?? medial;
       else if (prev === 'w') medial = WGL[medial] ?? medial;
