@@ -7,7 +7,7 @@ import { extractPdf, guessTitle } from '@/lib/pdf';
 import { isVideoFile, parseYoutubeId, saveVideo, transcribeVideo, transcribeYoutube, youtubeTitle } from '@/lib/video';
 import { findDoi, fetchPaperMeta } from '@/lib/doi';
 import { getGeminiKeys } from '@/lib/ai';
-import { uploadFile, downloadFile, pickFromDrive } from '@/lib/drive';
+import { uploadFile, downloadFile, downloadBlob, pickFromDrive } from '@/lib/drive';
 import { hasValidToken } from '@/lib/google';
 import type { DocKind, LibraryDoc } from '@/lib/types';
 import { errorMessage, nowIso, uid } from '@/lib/util';
@@ -21,6 +21,7 @@ interface Job {
   size?: number;
   file?: File;
   driveId?: string;
+  driveVideo?: boolean;
   ytId?: string;
   stage: Stage;
   progress: number;
@@ -69,7 +70,7 @@ export default function UploadPage() {
   const addUrl = () => {
     const id = parseYoutubeId(url);
     if (!id) {
-      setMsg('유튜브 주소를 확인해 주세요. 예) https://www.youtube.com/watch?v=...');
+      setMsg('지원하는 주소가 아니에요. 지금은 유튜브 주소만 돼요. 예) https://www.youtube.com/watch?v=...');
       return;
     }
     setMsg('');
@@ -115,18 +116,31 @@ export default function UploadPage() {
     try {
       if (!hasValidToken()) await connect();
       const picked = await pickFromDrive();
-      setJobs((prev) => [...prev, ...picked.map((p) => ({ key: uid('j'), name: p.name, driveId: p.id, stage: 'waiting' as Stage, progress: 0, message: '' }))]);
+      setJobs((prev) => [
+        ...prev,
+        ...picked.map((p) => ({
+          key: uid('j'),
+          name: p.name,
+          driveId: p.id,
+          driveVideo: p.mimeType.startsWith('video/') || p.mimeType.startsWith('audio/') || /\.(mp4|m4v|mov|webm|mkv|mp3|m4a|wav)$/i.test(p.name),
+          stage: 'waiting' as Stage,
+          progress: 0,
+          message: '',
+        })),
+      ]);
     } catch (e) {
       setMsg(errorMessage(e));
     }
   };
 
-  const processVideo = async (job: Job, file: File) => {
+  const processVideo = async (job: Job, fileIn?: File) => {
     const id = uid('d');
     const now = nowIso();
     try {
       if (!getGeminiKeys().length) throw new Error('영상 자막은 Gemini 키가 필요해요. 설정의 AI 연결에서 Gemini 키를 넣어 주세요.');
       patch(job.key, { stage: 'extracting', progress: 0, message: '' });
+      // 드라이브에서 고른 영상은 먼저 이 기기로 내려받음 (이미 드라이브에 있으니 다시 올리지 않음)
+      const file = fileIn ?? new File([await downloadBlob(job.driveId!)], job.name, { type: /\.(mp3|m4a|wav)$/i.test(job.name) ? 'audio/mpeg' : 'video/mp4' });
       const res = await transcribeVideo(file, (p) => patch(job.key, p.phase === 'decode' ? { stage: 'extracting', progress: 0 } : { stage: 'listening', progress: p.done / p.total }));
       if (res.sentenceCount === 0) throw new Error('영어 말소리를 찾지 못했어요. 소리가 없거나 영어가 아닌 영상일 수 있어요.');
       const doc: LibraryDoc = {
@@ -139,6 +153,7 @@ export default function UploadPage() {
         lastPage: 0,
         status: 'processing',
         duration: res.duration,
+        driveFileId: job.driveId,
         createdAt: now,
         updatedAt: now,
       };
@@ -150,7 +165,9 @@ export default function UploadPage() {
       } catch {
         warn += ' 영상 파일은 이 기기에 저장하지 못해 자막만 읽을 수 있어요.';
       }
-      if (hasValidToken()) {
+      if (job.driveId) {
+        // 드라이브에서 고른 영상: 이미 드라이브에 있으므로 올리지 않음
+      } else if (hasValidToken()) {
         try {
           patch(job.key, { stage: 'uploading', progress: 0 });
           const meta = await uploadFile(file, job.name, file.type || 'video/mp4', (r) => patch(job.key, { progress: r }));
@@ -170,7 +187,8 @@ export default function UploadPage() {
 
   const processOne = async (job: Job) => {
     if (job.ytId) return processYoutube(job);
-    if (job.file && !(job.file.type === 'application/pdf' || job.file.name.toLowerCase().endsWith('.pdf'))) return processVideo(job, job.file);
+    if (job.driveVideo) return processVideo(job);
+    if (job.file &&!(job.file.type === 'application/pdf' || job.file.name.toLowerCase().endsWith('.pdf'))) return processVideo(job, job.file);
     const id = uid('d');
     const now = nowIso();
     try {
@@ -262,7 +280,7 @@ export default function UploadPage() {
           </button>
           <button className="card" style={{ minHeight: 72 }} onClick={addFromDrive} disabled={running}>
             <b>구글 드라이브에서</b>
-            <div className="small">이미 올려둔 PDF</div>
+            <div className="small">이미 올려둔 PDF·영상</div>
           </button>
           <input ref={inputRef} type="file" accept="application/pdf,.pdf,video/*,audio/*,.mp4,.mov,.mkv,.mp3,.m4a" multiple hidden onChange={(e) => {
             addLocal(e.target.files);
@@ -299,14 +317,14 @@ export default function UploadPage() {
         </div>
 
         <div className="stack" style={{ gap: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>유튜브 주소로 추가</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)' }}>URL 입력</span>
           <div className="row" style={{ gap: 8 }}>
             <input className="input grow" style={{ padding: '0 10px' }} placeholder="https://www.youtube.com/watch?v=..." value={url} disabled={running} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addUrl()} />
             <button className="btn" disabled={running || !url.trim()} onClick={addUrl}>
               추가
             </button>
           </div>
-          <span className="small">공개 영상만 돼요(비공개·연령 제한 영상은 안 됨). 10분씩 나눠 받아 적고, 영상은 유튜브 화면 그대로 재생해요. 영상 파일을 내려받지 않아 휴대폰에서도 돼요.</span>
+          <span className="small">유튜브 주소를 넣으면 재생과 영어 자막이 만들어져요. 의학 강의, 학회 영상, TED 같은 영어 자료를 넣어 보세요. 공개 영상만 돼요(비공개·연령 제한 영상은 안 됨). 10분씩 나눠 받아 적고, 영상은 유튜브 화면 그대로 재생해요. 영상 파일을 내려받지 않아 휴대폰에서도 돼요.</span>
         </div>
 
         {msg && <div className="banner err">{msg}</div>}
@@ -355,7 +373,7 @@ export default function UploadPage() {
         </p>
 
         <button className="btn primary block" style={{ minHeight: 54, fontSize: 16 }} disabled={running || waitingCount === 0} onClick={start}>
-          {running ? '처리 중… 화면을 닫지 마세요' : waitingCount > 0 ? `${waitingCount}개 올리고 처리 시작` : '먼저 PDF를 골라 주세요'}
+          {running ? '처리 중… 화면을 닫지 마세요' : waitingCount > 0 ? `${waitingCount}개 올리고 처리 시작` : '먼저 PDF나 영상을 골라 주세요'}
         </button>
       </main>
     </>

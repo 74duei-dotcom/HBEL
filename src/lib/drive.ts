@@ -314,7 +314,7 @@ export interface PickedFile {
   mimeType: string;
 }
 
-/** 드라이브에 이미 있는 PDF를 골라 이 앱에서 쓸 수 있게 허용받습니다 */
+/** 드라이브에 이미 있는 PDF·영상을 골라 이 앱에서 쓸 수 있게 허용받습니다 */
 export async function pickFromDrive(): Promise<PickedFile[]> {
   if (!GOOGLE_API_KEY || !GOOGLE_PROJECT_NUMBER) {
     throw new Error('드라이브 파일 고르기에 필요한 API 키·프로젝트 번호가 .env.local에 없어요.');
@@ -327,7 +327,8 @@ export async function pickFromDrive(): Promise<PickedFile[]> {
 
   return new Promise<PickedFile[]>((resolve, reject) => {
     try {
-      const view = new g.picker.DocsView(g.picker.ViewId.DOCS).setMimeTypes('application/pdf').setIncludeFolders(true).setSelectFolderEnabled(false);
+      const view = new g.picker.DocsView(g.picker.ViewId.DOCS)
+        .setMimeTypes('application/pdf,video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-m4v,audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/x-wav').setIncludeFolders(true).setSelectFolderEnabled(false);
       const origin = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '';
       const builder = new g.picker.PickerBuilder()
         .addView(view)
@@ -336,7 +337,7 @@ export async function pickFromDrive(): Promise<PickedFile[]> {
         .setDeveloperKey(GOOGLE_API_KEY)
         .setAppId(GOOGLE_PROJECT_NUMBER)
         .setLocale('ko')
-        .setTitle('영어 서재에서 쓸 PDF 고르기')
+        .setTitle('영어 서재에서 쓸 PDF·영상 고르기')
         .setCallback((data: { action: string; docs?: { id: string; name: string; mimeType: string }[] }) => {
           if (data.action === g.picker.Action.PICKED) {
             resolve((data.docs ?? []).map((d) => ({ id: d.id, name: d.name, mimeType: d.mimeType })));
