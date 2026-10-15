@@ -273,6 +273,23 @@ function RoleChip({ role, text }: { role: string; text?: string }) {
 
 const ROLE_KO: Record<string, string> = { S: '주어', V: '동사', O: '목적어', IO: '간접목적어', DO: '직접목적어', C: '보어', OC: '목적격 보어' };
 
+// 우리말은 동사가 맨 끝: 주어 → 간접목적어 → 목적어 → 보어 → 동사
+const KO_ORDER = ['S', 'IO', 'O', 'DO', 'C', 'OC', 'V'];
+
+function Arrows({ roles }: { roles: string[] }) {
+  return (
+    <>
+      {roles.map((r, i) => (
+        <span key={r} className="row" style={{ gap: 6, alignItems: 'center' }}>
+          {i > 0 && <span aria-hidden style={{ color: 'var(--teal)', fontWeight: 700 }}>→</span>}
+          <span className="small" style={{ fontWeight: 700 }}>{i + 1}</span>
+          <RoleChip role={r} />
+        </span>
+      ))}
+    </>
+  );
+}
+
 const ROLE_LEGEND: [string, string, string][] = [
   ['S', '주어 (Subject)', '"~은/는, ~이/가" — 동작이나 상태의 주인공. 예: The pain(통증이)'],
   ['V', '동사 (Verb)', '"~하다, ~이다" — 문장의 움직임·상태를 말해요. 예: disappeared(사라졌다)'],
@@ -332,6 +349,19 @@ function PatternOverview() {
               {p.parts.map((x, i) => (
                 <RoleChip key={i} role={x.role} text={x.text} />
               ))}
+            </div>
+            <div className="stack" style={{ gap: 4, background: 'var(--ground)', borderRadius: 10, padding: '8px 10px' }}>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
+                <b style={{ minWidth: 64 }}>영어 순서</b>
+                <Arrows roles={p.formula} />
+              </div>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
+                <b style={{ minWidth: 64 }}>우리말 해석</b>
+                <Arrows roles={KO_ORDER.filter((r) => p.formula.includes(r))} />
+              </div>
+              <span className="muted" style={{ fontSize: 13 }}>
+                동사(V)를 맨 뒤로 보내 읽으면 우리말 어순이 돼요.
+              </span>
             </div>
             <span className="muted">{p.ko}</span>
             <span style={{ fontSize: 14 }}>{p.tip}</span>
