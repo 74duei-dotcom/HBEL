@@ -276,6 +276,10 @@ const ROLE_KO: Record<string, string> = { S: '주어', V: '동사', O: '목적�
 // 우리말은 동사가 맨 끝: 주어 → 간접목적어 → 목적어 → 보어 → 동사
 const KO_ORDER = ['S', 'IO', 'O', 'DO', 'C', 'OC', 'V'];
 
+function koRank(p: { parts: { role: string }[] }, role: string): number {
+  return [...p.parts].sort((a, b) => KO_ORDER.indexOf(a.role) - KO_ORDER.indexOf(b.role)).findIndex((x) => x.role === role) + 1;
+}
+
 function Arrows({ roles }: { roles: string[] }) {
   return (
     <>
@@ -347,8 +351,24 @@ function PatternOverview() {
             </div>
             <div className="row" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
               {p.parts.map((x, i) => (
-                <RoleChip key={i} role={x.role} text={x.text} />
+                <span key={i} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <span className="small" style={{ fontWeight: 700, color: 'var(--teal)' }} aria-label={`우리말 해석 ${koRank(p, x.role)}번째`}>
+                    ({koRank(p, x.role)})
+                  </span>
+                  <RoleChip role={x.role} text={x.text} />
+                </span>
               ))}
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center', fontSize: 14 }}>
+              <b style={{ fontSize: 13 }}>읽는 순서</b>
+              {[...p.parts]
+                .sort((a, b) => KO_ORDER.indexOf(a.role) - KO_ORDER.indexOf(b.role))
+                .map((x, i) => (
+                  <span key={i} className="row" style={{ gap: 6, alignItems: 'center' }}>
+                    {i > 0 && <span aria-hidden style={{ color: 'var(--teal)', fontWeight: 700 }}>→</span>}
+                    <span style={{ fontFamily: 'var(--font-read)', background: ROLE_STYLE[x.role]?.bg, color: ROLE_STYLE[x.role]?.fg, borderRadius: 6, padding: '1px 8px' }}>{x.text}</span>
+                  </span>
+                ))}
             </div>
             <div className="stack" style={{ gap: 4, background: 'var(--ground)', borderRadius: 10, padding: '8px 10px' }}>
               <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center', fontSize: 13 }}>
