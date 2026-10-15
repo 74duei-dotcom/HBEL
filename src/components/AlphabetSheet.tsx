@@ -17,7 +17,7 @@ export function AlphabetLinkCard() {
   );
 }
 
-const grid2 = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 } as const;
+const grid2 = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(156px, 1fr))', gap: 8 } as const;
 
 export function AlphabetSheet() {
   const [open, setOpen] = useState('');
@@ -47,7 +47,7 @@ export function AlphabetSheet() {
                 onClick={() => r.tip && setOpen(isOpen ? '' : r.letter)}
                 aria-expanded={r.tip ? isOpen : undefined}
                 style={{
-                  padding: '5px 10px',
+                  padding: '8px 10px',
                   textAlign: 'left',
                   display: 'flex',
                   flexWrap: 'wrap',
@@ -58,10 +58,10 @@ export function AlphabetSheet() {
                   borderColor: isOpen ? 'var(--teal)' : undefined,
                 }}
               >
-                <b style={{ fontSize: 22, lineHeight: 1, color: 'var(--teal)', width: 22, textAlign: 'center' }}>{r.letter}</b>
+                <b style={{ fontSize: 26, lineHeight: 1, color: 'var(--teal)', width: 24, textAlign: 'center' }}>{r.letter}</b>
                 <span className="stack" style={{ gap: 1, flex: 1, minWidth: 0 }}>
-                  <b style={{ fontSize: 13, lineHeight: 1.25 }}>{r.sounds}</b>
-                  <span className="small">{r.name}</span>
+                  <b style={{ fontSize: 'clamp(12px, 3.5vw, 16px)', lineHeight: 1.3 }}>{r.sounds}</b>
+                  <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>{r.name}</span>
                 </span>
                 {r.tip && <span aria-hidden style={{ color: 'var(--ink-2)', fontSize: 11 }}>{isOpen ? '▲' : 'ⓘ'}</span>}
                 {isOpen && r.tip && <span className="small" style={{ flexBasis: '100%', marginTop: 6, color: 'var(--ink)' }}>{r.tip}</span>}
