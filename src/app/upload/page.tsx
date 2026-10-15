@@ -149,6 +149,17 @@ export default function UploadPage() {
       } catch {
         warn += ' 영상 파일은 이 기기에 저장하지 못해 자막만 읽을 수 있어요.';
       }
+      if (hasValidToken()) {
+        try {
+          patch(job.key, { stage: 'uploading', progress: 0 });
+          const meta = await uploadFile(file, job.name, file.type || 'video/mp4', (r) => patch(job.key, { progress: r }));
+          doc.driveFileId = meta.id;
+        } catch (e) {
+          warn += ` 영상을 드라이브에 올리지 못해 이 기기에만 저장했어요(${errorMessage(e)}).`;
+        }
+      } else {
+        warn += ' 구글 드라이브에 연결되지 않아 영상은 이 기기에만 저장했어요.';
+      }
       upsertDoc({ ...doc, status: 'ready' });
       patch(job.key, { stage: 'done', docId: id, warn });
     } catch (e) {
@@ -272,7 +283,7 @@ export default function UploadPage() {
         </label>
 
         <div className="small" style={{ lineHeight: 1.6 }}>
-          강의 영상(mp4·mp3 등)도 올릴 수 있어요. PC에서 올리는 것을 권해요. 소리를 4분씩 나눠 Gemini가 영어 자막으로 받아 적으며, 10분 영상에 1~3분 걸려요. 영상 파일은 이 기기에만 저장되고 구글 드라이브에는 올리지 않아요.
+          강의 영상(mp4·mp3 등)도 올릴 수 있어요. PC에서 올리는 것을 권해요. 소리를 4분씩 나눠 Gemini가 영어 자막으로 받아 적으며, 10분 영상에 1~3분 걸려요. 영상 파일은 이 기기와 내 구글 드라이브 › 영어서재 폴더에 저장되고, 다른 기기에서는 읽기 화면에서 내려받아 볼 수 있어요.
         </div>
 
         <div className="stack" style={{ gap: 6 }}>

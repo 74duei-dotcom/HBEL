@@ -142,6 +142,12 @@ export async function downloadFile(fileId: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
+/** 큰 파일(영상)을 통째로 내려받아 Blob으로 돌려줌 */
+export async function downloadBlob(fileId: string): Promise<Blob> {
+  const res = await driveFetch(`${API}/files/${encodeURIComponent(fileId)}?alt=media`);
+  return res.blob();
+}
+
 export async function getFileMeta(fileId: string): Promise<DriveFileMeta> {
   const res = await driveFetch(`${API}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,webViewLink`);
   return res.json();

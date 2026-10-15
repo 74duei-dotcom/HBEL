@@ -1,6 +1,6 @@
 'use client';
 // 강의 영상: 영상에서 소리를 뽑아(기기 안) → 4분씩 나눠 Gemini가 영어 자막으로 받아 적음
-// 영상 파일 자체는 이 기기에만 저장하고(IndexedDB) 구글 드라이브·AI에는 올리지 않음. AI에는 소리 조각만 보냄
+// 영상 파일은 이 기기(IndexedDB)와 구글 드라이브 영어서재 폴더에 저장. AI에는 소리 조각만 보냄
 
 import { del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 import { AIError, callGeminiWithAudio, callGeminiWithVideoUrl } from './ai';

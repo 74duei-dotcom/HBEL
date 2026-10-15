@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { activeVocab, loadAnalysis, loadDocContent, removeDocFiles, saveAnalysis, useStore } from '@/lib/store';
 import { analyzeSentences, HANGUL_VERSION } from '@/lib/claude';
-import { driveViewUrl } from '@/lib/drive';
+import { downloadBlob, driveViewUrl, uploadFile } from '@/lib/drive';
+import { hasValidToken } from '@/lib/google';
 import { createYouTubePlayer, formatTime, loadVideo, saveVideo, type YTPlayer } from '@/lib/video';
 import { speak, stopSpeaking, canSpeak, prefetchSpeech, TTS_FALLBACK_EVENT } from '@/lib/speech';
 import type { DocAnalysisCache, DocContent, GrammarAnalysis, WordInfo } from '@/lib/types';
@@ -24,7 +25,8 @@ function ReaderInner() {
   const params = useSearchParams();
   const router = useRouter();
   const id = params.get('id') ?? '';
-  const { data, ready, upsertDoc, removeDoc } = useStore();
+  const { data, ready, upsertDoc, removeDoc, connect } = useStore();
+  const [videoBusy, setVideoBusy] = useState('');
   const doc = data.library[id];
   const prefs = data.prefs;
 
@@ -258,17 +260,51 @@ function ReaderInner() {
     if (np !== doc.lastPage) upsertDoc({ ...doc, lastPage: np });
   };
 
+  const showVideo = (b: Blob) =>
+    setVideoUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return URL.createObjectURL(b);
+    });
+
   const attachVideo = async (f: File | undefined) => {
     if (!f || !doc) return;
     try {
       await saveVideo(doc.id, f);
-      setVideoUrl((old) => {
-        if (old) URL.revokeObjectURL(old);
-        return URL.createObjectURL(f);
-      });
+      showVideo(f);
+    } catch (e) {
+      setLoadErr(errorMessage(e));
+      return;
+    }
+    // 드라이브에 아직 없으면 올려 두기 (다른 기기에서도 볼 수 있게)
+    if (!doc.driveFileId && hasValidToken()) {
+      setVideoBusy('드라이브에 올리는 중…');
+      try {
+        const meta = await uploadFile(f, f.name, f.type || 'video/mp4', (r) => setVideoBusy(`드라이브에 올리는 중… ${Math.round(r * 100)}%`));
+        upsertDoc({ ...doc, driveFileId: meta.id });
+      } catch (e) {
+        setLoadErr(`영상은 연결했지만 드라이브에는 올리지 못했어요. ${errorMessage(e)}`);
+      }
+      setVideoBusy('');
+    }
+  };
+
+  /** 드라이브에 있는 영상을 이 기기로 내려받아 저장 */
+  const fetchVideoFromDrive = async () => {
+    if (!doc?.driveFileId) return;
+    setVideoBusy('드라이브에서 영상을 내려받는 중… (영상이 크면 오래 걸려요)');
+    try {
+      if (!hasValidToken()) await connect();
+      const b = await downloadBlob(doc.driveFileId);
+      try {
+        await saveVideo(doc.id, b);
+      } catch {
+        /* 저장은 못 해도 이번에는 재생 가능 */
+      }
+      showVideo(b);
     } catch (e) {
       setLoadErr(errorMessage(e));
     }
+    setVideoBusy('');
   };
 
   /** 영상이 재생되는 동안 지금 시각에 맞는 쪽·문장을 따라감 */
@@ -368,7 +404,7 @@ function ReaderInner() {
 
   const remove = async () => {
     if (!doc) return;
-    if (!window.confirm(`"${doc.title}"을(를) 내 자료에서 지울까요?\n단어장에 저장한 단어는 남고, 구글 드라이브의 원본 PDF도 그대로 남아요.`)) return;
+    if (!window.confirm(`"${doc.title}"을(를) 내 자료에서 지울까요?\n단어장에 저장한 단어는 남고, ${doc.duration ? '구글 드라이브의 영상 파일도' : '구글 드라이브의 원본 PDF도'} 그대로 남아요.`)) return;
     removeDoc(doc.id);
     await removeDocFiles(doc.id);
     router.push('/');
@@ -470,11 +506,23 @@ function ReaderInner() {
               )}
               {isLecture && !ytId && videoChecked && !videoUrl && (
                 <div className="banner warn" style={{ fontFamily: 'var(--font-ui)', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
-                  <span>이 기기에는 영상 파일이 없어요. 자막은 그대로 읽을 수 있어요. 같은 영상 파일을 연결하면 문장을 눌러 그 장면을 볼 수 있어요.</span>
-                  <label className="btn sm" style={{ cursor: 'pointer' }}>
-                    영상 파일 연결
-                    <input type="file" accept="video/*,audio/*" hidden onChange={(e) => void attachVideo(e.target.files?.[0])} />
-                  </label>
+                  <span>
+                    {doc?.driveFileId
+                      ? '이 기기에는 아직 영상이 없어요. 내 구글 드라이브에 있는 영상을 내려받으면 문장을 눌러 그 장면을 볼 수 있어요. 자막은 그대로 읽을 수 있어요.'
+                      : '이 영상은 아직 드라이브에 올라가 있지 않아요. 영상 파일을 연결하면 이 기기에서 장면을 볼 수 있고, 구글에 연결돼 있으면 드라이브에도 올려 둬요. 자막은 그대로 읽을 수 있어요.'}
+                  </span>
+                  {videoBusy && <span className="small">{videoBusy}</span>}
+                  {!videoBusy && doc?.driveFileId && (
+                    <button type="button" className="btn sm primary" onClick={() => void fetchVideoFromDrive()}>
+                      드라이브에서 영상 내려받기
+                    </button>
+                  )}
+                  {!videoBusy && (
+                    <label className="btn sm" style={{ cursor: 'pointer' }}>
+                      {doc?.driveFileId ? '내 기기에서 영상 파일 고르기' : '영상 파일 연결'}
+                      <input type="file" accept="video/*,audio/*" hidden onChange={(e) => void attachVideo(e.target.files?.[0])} />
+                    </label>
+                  )}
                 </div>
               )}
 
