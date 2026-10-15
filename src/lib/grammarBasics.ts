@@ -232,3 +232,32 @@ export const PATTERN_SUMMARY: PatternSummary[] = [
   { n: 4, formula: ['S', 'V', 'IO', 'DO'], tip: '"~에게 ~을" 두 개를 줘요. 간접목적어(사람) + 직접목적어(물건).', parts: [{ role: 'S', text: 'The therapist' }, { role: 'V', text: 'gave' }, { role: 'IO', text: 'him' }, { role: 'DO', text: 'a stretching routine' }], ko: '치료사는 그에게 스트레칭 루틴을 주었다.' },
   { n: 5, formula: ['S', 'V', 'O', 'OC'], tip: '목적격 보어(OC)가 목적어의 상태를 설명해요. 목적어 = OC.', parts: [{ role: 'S', text: 'Rest' }, { role: 'V', text: 'keeps' }, { role: 'O', text: 'the joint' }, { role: 'OC', text: 'stable' }], ko: '휴식은 관절을 안정되게 유지시킨다.' },
 ];
+
+/** '8품사 한눈에 보기' 한 장 요약용 (직접 쓴 내용). hk의 *…*는 강세 음절 */
+export interface PosWord {
+  en: string;
+  hk: string;
+}
+
+export interface PosSummary {
+  n: number;
+  ko: string;
+  en: string;
+  short: string;
+  desc: string;
+  hint: string;
+  words: PosWord[];
+  focus: number;
+  translation: string;
+}
+
+export const POS_SUMMARY: PosSummary[] = [
+  { n: 1, ko: '명사', en: 'Noun', short: '이름', desc: '이름을 나타내는 말', hint: '사람·사물·장소·생각 등의 이름', words: [{ en: 'I', hk: '*아*이' }, { en: 'like', hk: '*라이*크' }, { en: 'books.', hk: '*북*스' }], focus: 2, translation: '나는 책을 좋아한다.' },
+  { n: 2, ko: '대명사', en: 'Pronoun', short: '이름 대신', desc: '이름 대신 지칭하는 말', hint: '사람이나 사물의 이름을 대신 써요', words: [{ en: 'She', hk: '*쉬*' }, { en: 'loves', hk: '*러*브즈' }, { en: 'me.', hk: '*미*' }], focus: 2, translation: '그녀는 나를 사랑한다.' },
+  { n: 3, ko: '동사', en: 'Verb', short: '움직임', desc: '움직임을 나타내는 말', hint: '행동·존재·상태 등을 나타내요', words: [{ en: 'I', hk: '*아*이' }, { en: 'study', hk: '*스*터디' }, { en: 'English.', hk: '*잉*글리시' }], focus: 1, translation: '나는 영어를 공부한다.' },
+  { n: 4, ko: '형용사', en: 'Adjective', short: '~ㄴ / ~한', desc: '끝이 ~ㄴ / ~한으로 끝나는 말', hint: '명사를 꾸미거나 상태를 설명해요', words: [{ en: 'She', hk: '*쉬*' }, { en: 'is', hk: '*이*즈' }, { en: 'happy.', hk: '*해*피' }], focus: 2, translation: '그녀는 행복하다.' },
+  { n: 5, ko: '부사', en: 'Adverb', short: '~게 / ~히', desc: '~게 / ~히로 끝나는 말', hint: '동사·형용사·다른 부사를 꾸며요', words: [{ en: 'He', hk: '*히*' }, { en: 'runs', hk: '*런*즈' }, { en: 'quickly.', hk: '*퀵*클리' }], focus: 2, translation: '그는 빠르게 달린다.' },
+  { n: 6, ko: '전치사', en: 'Preposition', short: '관계', desc: '위치·방향·관계를 나타내는 말', hint: '명사 앞에 놓여 장소·방향 등을 알려줘요', words: [{ en: 'I', hk: '*아*이' }, { en: 'go', hk: '*고*우' }, { en: 'to', hk: '*투*' }, { en: 'school.', hk: '*스쿨*' }], focus: 2, translation: '나는 학교에 간다.' },
+  { n: 7, ko: '접속사', en: 'Conjunction', short: '연결', desc: '연결하는 말', hint: '단어와 단어, 구와 구, 문장과 문장을 이어요', words: [{ en: 'I', hk: '*아*이' }, { en: 'like', hk: '*라이*크' }, { en: 'coffee', hk: '*커*피' }, { en: 'and', hk: '*앤*드' }, { en: 'tea.', hk: '*티*' }], focus: 3, translation: '나는 커피와 차를 좋아한다.' },
+  { n: 8, ko: '감탄사', en: 'Interjection', short: '감정', desc: '감정을 나타내는 말', hint: '기쁨·놀람 등 느낌을 표현해요', words: [{ en: 'Wow!', hk: '*와*우' }, { en: "That's", hk: '*댓*츠' }, { en: 'amazing!', hk: '어*메*이징' }], focus: 0, translation: '와! 정말 놀랍다!' },
+];

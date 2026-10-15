@@ -5,11 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
 import { activeGrammar, useStore } from '@/lib/store';
 import { makeGrammarQuiz } from '@/lib/grammar';
-import { basicGrammarList, isBasicGrammarId, PATTERN_SUMMARY, resolveBasicGrammar } from '@/lib/grammarBasics';
+import { basicGrammarList, isBasicGrammarId, PATTERN_SUMMARY, POS_SUMMARY, resolveBasicGrammar } from '@/lib/grammarBasics';
 import type { GrammarItem } from '@/lib/types';
 import { errorMessage } from '@/lib/util';
 import { TabBar } from '@/components/TabBar';
 import { Icon } from '@/components/Icon';
+import { Hangul } from '@/components/Hangul';
 
 type StatusFilter = 'learning' | 'known' | 'all';
 
@@ -39,6 +40,14 @@ function GrammarList() {
           <span className="sr-only">문법 검색</span>
           <input type="search" placeholder="문법 이름으로 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
+
+        <Link href="/grammar/?view=parts" className="card between" style={{ padding: "12px 16px", textDecoration: "none", color: "inherit" }}>
+          <span className="stack" style={{ gap: 2 }}>
+            <b>8품사 한눈에 보기</b>
+            <span className="small">영어 단어의 여덟 가지 종류를 한 장으로 정리</span>
+          </span>
+          <span aria-hidden>→</span>
+        </Link>
 
         <Link href="/grammar/?view=patterns" className="card between" style={{ padding: "12px 16px", textDecoration: "none", color: "inherit" }}>
           <span className="stack" style={{ gap: 2 }}>
@@ -395,10 +404,66 @@ function PatternOverview() {
   );
 }
 
+function PartsOverview() {
+  return (
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Link href="/grammar/" className="icon-btn" aria-label="문법 노트로">
+            <Icon name="back" />
+          </Link>
+          <div className="topbar-title">
+            <strong>8품사 한눈에 보기</strong>
+            <span>영어의 모든 단어는 8가지 품사로 나뉩니다</span>
+          </div>
+          <span style={{ width: 44 }} />
+        </div>
+      </header>
+      <main className="page no-tabs">
+        {POS_SUMMARY.map((p) => (
+          <div key={p.n} className="card stack" style={{ gap: 10 }}>
+            <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ background: 'var(--teal)', color: '#fff', borderRadius: 999, minWidth: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{p.n}</span>
+              <b style={{ fontSize: 18 }}>{p.ko}</b>
+              <span className="muted">({p.en})</span>
+              <span className="small" style={{ marginLeft: 'auto', fontWeight: 600, color: 'var(--teal)' }}>{p.short}</span>
+            </div>
+            <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+              <b>{p.desc}</b>
+              <div className="muted">{p.hint}</div>
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 8, alignItems: 'flex-start', fontFamily: 'var(--font-read)', fontSize: 20 }}>
+              {p.words.map((w, i) => (
+                <span key={i} className="tok">
+                  <span className="tok-en" style={i === p.focus ? { background: 'var(--teal)', color: '#fff', borderRadius: 6, padding: '0 6px' } : undefined}>{w.en}</span>
+                  <span className="tok-hk"><Hangul text={w.hk} /></span>
+                </span>
+              ))}
+            </div>
+            <span className="muted">{p.translation}</span>
+          </div>
+        ))}
+        <div className="card stack" style={{ gap: 8 }}>
+          <b>8품사 한눈에 보기</b>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+            {POS_SUMMARY.map((p) => (
+              <span key={p.n} className="small" style={{ background: 'var(--ground)', borderRadius: 8, padding: '4px 8px' }}>
+                <b>{p.n} {p.ko}</b> · {p.short}
+              </span>
+            ))}
+          </div>
+          <span style={{ fontSize: 14 }}>영어는 단어의 뜻을 알고, 앞에서부터 이해하세요!</span>
+        </div>
+      </main>
+    </>
+  );
+}
+
 function GrammarInner() {
   const params = useSearchParams();
   const id = params.get('id') ?? '';
   if (params.get('view') === 'patterns') return <PatternOverview />;
+  if (params.get('view') === 'parts') return <PartsOverview />;
   return id ? <GrammarDetail id={id} /> : <GrammarList />;
 }
 
