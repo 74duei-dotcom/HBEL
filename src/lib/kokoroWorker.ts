@@ -29,6 +29,10 @@ self.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
   return origFetch(input, init);
 };
 
+// 작업 스레드가 살아 있는지 알리는 신호 (계산에 몰두하면 신호가 멈추므로 '계산 중'과 '죽음'을 가늠하는 단서)
+setInterval(() => ctx.postMessage({ beat: Date.now() }), 1000);
+
+let engineName = '';
 let model: Promise<KokoroTTS> | null = null;
 let chain: Promise<unknown> = Promise.resolve();
 
@@ -48,6 +52,7 @@ async function gpuAvailable(): Promise<boolean> {
 
 async function loadWasm(): Promise<KokoroTTS> {
   ctx.postMessage({ stage: '모델 파일 받는 중…' });
+  engineName = '기본 방식';
   return KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'q8', device: 'wasm', progress_callback: onProgress });
 }
 
@@ -59,6 +64,7 @@ async function loadModel(): Promise<KokoroTTS> {
       const gpuModel = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'fp32', device: 'webgpu', progress_callback: onProgress });
       ctx.postMessage({ stage: '그래픽 칩으로 시험 계산 중…' });
       await gpuModel.generate('Hi.', { voice: 'af_heart' }); // 실제로 계산이 되는지 먼저 확인
+      engineName = '그래픽 칩';
       return gpuModel;
     } catch (err) {
       ctx.postMessage({ stage: `그래픽 칩 사용 실패(${err instanceof Error ? err.message.slice(0, 60) : '오류'}), 기본 방식으로 전환…` });
@@ -85,7 +91,7 @@ ctx.onmessage = (e) => {
     .then(async () => {
       try {
         const tts = await load();
-        ctx.postMessage({ stage: type === 'load' ? '준비 완료, 시험 음성 만드는 중…' : '문장 소리 만드는 중…' });
+        ctx.postMessage({ stage: type === 'load' ? `준비 완료(${engineName}), 시험 음성 만드는 중…` : `문장 소리 만드는 중(${engineName})…` });
         if (type === 'load') {
           ctx.postMessage({ id, ok: true });
           return;

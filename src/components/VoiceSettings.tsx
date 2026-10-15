@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { getGeminiKeys } from '@/lib/ai';
 import { getTtsEngine, setTtsEngine, testGeminiVoice, testLocalVoice } from '@/lib/speech';
 import type { TtsEngine } from '@/lib/speech';
-import { getLocalStage } from '@/lib/localTts';
+import { getBeatAge, getLocalStage } from '@/lib/localTts';
 import { errorMessage } from '@/lib/util';
 
 export function VoiceSettings() {
@@ -29,7 +29,7 @@ export function VoiceSettings() {
   useEffect(() => {
     if (!busy || engine !== 'local') return;
     const start = Date.now();
-    const t = setInterval(() => setStage(`${getLocalStage()} ${Math.round((Date.now() - start) / 1000)}초`), 500);
+    const t = setInterval(() => setStage(`${getLocalStage()} ${Math.round((Date.now() - start) / 1000)}초 · 작업 신호 ${getBeatAge() <= 3 ? '정상' : `${getBeatAge()}초째 없음`}`), 500);
     return () => {
       clearInterval(t);
       setStage('');

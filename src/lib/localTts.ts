@@ -23,6 +23,11 @@ export function getLocalStage(): string {
 }
 let localStage = '';
 let lastActivity = 0;
+let lastBeat = 0;
+/** 작업 스레드의 마지막 신호 이후 지난 초 (신호가 멈추면 계산에 몰두 중이거나 꺼진 것) */
+export function getBeatAge(): number {
+  return lastBeat ? Math.round((Date.now() - lastBeat) / 1000) : -1;
+}
 
 export function isLocalReady(): boolean {
   return ready;
@@ -34,8 +39,12 @@ export function getLocalError(): string {
 function getWorker(): Worker {
   if (worker) return worker;
   const w = new Worker(new URL('./kokoroWorker.ts', import.meta.url), { type: 'module' });
-  w.onmessage = (e: MessageEvent<{ id?: number; ok?: boolean; blob?: Blob; error?: string; progress?: number; stage?: string }>) => {
+  w.onmessage = (e: MessageEvent<{ id?: number; ok?: boolean; blob?: Blob; error?: string; progress?: number; stage?: string; beat?: number }>) => {
     const m = e.data;
+    if (typeof m.beat === 'number') {
+      lastBeat = Date.now();
+      return;
+    }
     if (typeof m.stage === 'string') {
       localStage = m.stage;
       lastActivity = Date.now();
