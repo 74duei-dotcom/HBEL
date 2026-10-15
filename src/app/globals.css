@@ -259,5 +259,9 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .spell.silent .spell-en, .spell-legend i.silent { color: var(--ink-2); opacity: .55; }
 .spell.silent .spell-ko { font-size: 11px; opacity: .7; }
 .spell.stress .spell-ko { font-weight: 800; color: var(--teal-dark); text-decoration: underline; }
+.spell-syl { font-size: 15px; color: var(--ink); font-weight: 700; }
+.spell-syl b { font-size: 12px; color: var(--teal-dark); margin-right: 4px; }
+.spell-syl span { font-size: 12px; font-weight: 500; color: var(--ink-2); }
+.spell.syl-start { border-left: 2px solid var(--teal-dark); padding-left: 6px; margin-left: 4px; }
 .spell-legend { font-size: 11px; color: var(--ink-2); display: flex; gap: 10px; }
 .spell-legend i { font-style: normal; font-weight: 700; }

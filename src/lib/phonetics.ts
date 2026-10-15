@@ -201,6 +201,55 @@ export interface SpellChunk {
   ko: string; // 한글 소리 (예: "ㅇ"), 안 읽는 글자는 빈 문자열
   kind: 'v' | 'c' | 'silent'; // 모음 / 자음 / 읽지 않는 글자
   stress: boolean; // 강세 모음이 들어 있으면 true
+  sylStart?: boolean; // 이 묶음 앞에서 새 음절이 시작되면 true
+}
+
+/** 앞 자음 + 뒤 자음이 한 음절의 첫소리로 함께 올 수 있는지 (pl, tr, st, sp …) */
+function validOnset(a: string, b: string): boolean {
+  if ('pbtdkgfc'.includes(a) && a.length === 1 && (b[0] === 'l' || b[0] === 'r')) return true;
+  if (a === 's' && 'ptkcmnlw'.includes(b[0])) return true;
+  return false;
+}
+
+/** 철자 묶음에 음절 경계를 표시하고, 철자 음절 목록(예: ["trans","ferred"])을 돌려줌 (사전식 나눔과 다를 수 있는 근사치) */
+export function syllabify(chunks: SpellChunk[]): string[] {
+  const vi = chunks.map((c, i) => (c.kind === 'v' ? i : -1)).filter((i) => i >= 0);
+  const cuts: number[] = []; // 글자 위치(여기서 새 음절 시작)
+  const starts: number[] = [];
+  let pos = 0;
+  for (const c of chunks) {
+    starts.push(pos);
+    pos += c.en.length;
+  }
+  for (let n = 0; n + 1 < vi.length; n++) {
+    const a = vi[n];
+    const b = vi[n + 1];
+    const cons: number[] = [];
+    for (let i = a + 1; i < b; i++) if (chunks[i].kind === 'c') cons.push(i);
+    if (!cons.length) {
+      cuts.push(starts[b]);
+      continue;
+    }
+    let k = cons[cons.length - 1];
+    while (cons.includes(k - 1) && validOnset(chunks[k - 1].en, chunks[k].en)) k--;
+    const ch = chunks[k].en;
+    if (k === cons[0] && ch.length === 2 && ch[0] === ch[1]) {
+      cuts.push(starts[k] + 1); // letter → let·ter 처럼 겹자음은 가운데서 나눔
+      if (chunks[k + 1]) chunks[k + 1].sylStart = true;
+    } else {
+      cuts.push(starts[k]);
+      chunks[k].sylStart = true;
+    }
+  }
+  const w = chunks.map((c) => c.en).join('');
+  const out: string[] = [];
+  let prev = 0;
+  for (const c of cuts) {
+    out.push(w.slice(prev, c));
+    prev = c;
+  }
+  out.push(w.slice(prev));
+  return out.filter(Boolean);
 }
 
 /** 'V' = 아무 모음, 'R' = ɚ·ɝ(r이 섞인 모음), 그 외는 그 소리 그대로 */
