@@ -9,6 +9,7 @@ import { LS_KEYS } from '@/lib/config';
 import { TabBar } from '@/components/TabBar';
 import { SyncBanner } from '@/components/SyncBanner';
 import { Icon } from '@/components/Icon';
+import { AlphabetLinkCard } from '@/components/AlphabetSheet';
 
 const KIND_LABEL = { paper: '논문', book: '전문서적', lecture: '강의' } as const;
 
@@ -88,6 +89,8 @@ export default function HomePage() {
             <span className="small">논문 · 전문서적 · 강의 영상 (영상은 PC 권장)</span>
           </span>
         </Link>
+
+        <AlphabetLinkCard />
 
         {docs.length > 0 && (
           <section className="stack">

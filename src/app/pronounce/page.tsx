@@ -11,6 +11,7 @@ import type { DocContent } from '@/lib/types';
 import { errorMessage } from '@/lib/util';
 import { TabBar } from '@/components/TabBar';
 import { Icon } from '@/components/Icon';
+import { AlphabetLinkCard, AlphabetSheet } from '@/components/AlphabetSheet';
 
 const MAX_SECONDS = 40;
 
@@ -206,6 +207,8 @@ function PronounceInner() {
         <h1 className="page-title">발음 연습</h1>
         <div className="muted">내 자료의 문장을 원어민 소리로 듣고, 따라 읽은 것을 AI가 평가해 줘요.</div>
 
+        <AlphabetLinkCard />
+
         <div className="card stack">
           <b>직접 문장 입력</b>
           <textarea className="input" rows={2} style={{ padding: 10, fontFamily: 'var(--font-read)' }} placeholder="연습할 영어 문장을 붙여 넣으세요" value={custom} onChange={(e) => setCustom(e.target.value)} />
@@ -266,10 +269,16 @@ function PronounceInner() {
   );
 }
 
+function PronounceRoute() {
+  const params = useSearchParams();
+  if (params.get('view') === 'alphabet') return <AlphabetSheet />;
+  return <PronounceInner />;
+}
+
 export default function PronouncePage() {
   return (
     <Suspense fallback={<main className="page muted">불러오는 중…</main>}>
-      <PronounceInner />
+      <PronounceRoute />
     </Suspense>
   );
 }
