@@ -28,7 +28,8 @@ export function VoiceSettings() {
   // 만드는 동안 지금 어느 단계인지(내려받는 %, 준비 중 등)를 보여 줌
   useEffect(() => {
     if (!busy || engine !== 'local') return;
-    const t = setInterval(() => setStage(getLocalStage()), 500);
+    const start = Date.now();
+    const t = setInterval(() => setStage(`${getLocalStage()} ${Math.round((Date.now() - start) / 1000)}초`), 500);
     return () => {
       clearInterval(t);
       setStage('');
