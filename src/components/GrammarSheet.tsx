@@ -5,9 +5,28 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/lib/store';
 import { analyzeGrammar, grammarId } from '@/lib/grammar';
-import type { DocKind, GrammarAnalysis, GrammarExample, GrammarItem, GrammarPoint } from '@/lib/types';
+import type { DocKind, GrammarAnalysis, GrammarExample, GrammarItem, GrammarPoint, PatternRole } from '@/lib/types';
 import { errorMessage, nowIso } from '@/lib/util';
 import { Icon } from './Icon';
+
+const PATTERN_TITLE: Record<number, string> = {
+  1: '1형식 (S+V)',
+  2: '2형식 (S+V+C)',
+  3: '3형식 (S+V+O)',
+  4: '4형식 (S+V+IO+DO)',
+  5: '5형식 (S+V+O+OC)',
+};
+
+const ROLE_LABEL: Record<PatternRole, string> = {
+  S: '주어(S)',
+  V: '동사(V)',
+  O: '목적어(O)',
+  C: '보어(C)',
+  IO: '간접목적어(IO)',
+  DO: '직접목적어(DO)',
+  OC: '목적격 보어(OC)',
+  M: '꾸밈말',
+};
 
 export interface GrammarTarget {
   sentence: string;
@@ -42,11 +61,11 @@ export function GrammarSheet({ target, docId, docTitle, kind, cached, onCache, o
     return () => mq.removeEventListener('change', update);
   }, [target]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (!target) return;
     const my = ++reqId.current; // 더 새로운 요청이 시작되면 이전 요청의 결과는 화면에 반영하지 않음
     setErr('');
-    const hit = cached(target);
+    const hit = force ? undefined : cached(target);
     if (hit) {
       setInfo(hit);
       return;
@@ -140,6 +159,34 @@ export function GrammarSheet({ target, docId, docTitle, kind, cached, onCache, o
 
           {info && (
             <>
+              {info.pattern && (
+                <div className="card stack" style={{ gap: 8 }}>
+                  <div className="between">
+                    <b style={{ fontSize: 16 }}>{PATTERN_TITLE[info.pattern.n]}</b>
+                    <Link href={`/grammar/?id=basic-pattern-${info.pattern.n}`} className="small" style={{ fontWeight: 600 }}>
+                      설명 보기 →
+                    </Link>
+                  </div>
+                  <div className="row" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }} aria-label="문장 성분">
+                    {info.pattern.parts.map((p, i) => (
+                      <span key={i} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                        <span style={{ fontFamily: 'var(--font-read)', fontSize: 15, borderRadius: 6, padding: '2px 8px', background: p.role === 'M' ? 'var(--ground)' : 'var(--teal-soft-2)' }}>{p.text}</span>
+                        <span className="small" style={{ fontWeight: 600 }}>
+                          {ROLE_LABEL[p.role]}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {info.pattern === undefined && (
+                <div className="banner info">
+                  <span className="grow">예전에 분석한 문장이라 문장 형식 판정이 없어요.</span>
+                  <button className="btn sm" onClick={() => void load(true)}>
+                    다시 분석
+                  </button>
+                </div>
+              )}
               {info.structure && (
                 <div className="banner info" style={{ alignItems: 'flex-start' }}>
                   <span className="grow">

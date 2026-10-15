@@ -74,10 +74,25 @@ export interface GrammarPoint {
   usage: string; // 의학·학술 글에서 어떻게 쓰이는지
 }
 
+/** 문장 성분 한 조각: S 주어 / V 동사 / O 목적어 / C 보어 / IO 간접목적어 / DO 직접목적어 / OC 목적격 보어 / M 수식어 */
+export type PatternRole = 'S' | 'V' | 'O' | 'C' | 'IO' | 'DO' | 'OC' | 'M';
+
+export interface PatternPart {
+  role: PatternRole;
+  text: string; // 문장 속 원문 그대로
+}
+
+/** 문장의 주절 형식(1~5형식) 판정 결과 */
+export interface SentencePattern {
+  n: 1 | 2 | 3 | 4 | 5;
+  parts: PatternPart[];
+}
+
 /** 문장 하나의 문법 분석 결과 */
 export interface GrammarAnalysis {
   structure: string; // 문장 구조 한 줄 요약
   points: GrammarPoint[];
+  pattern?: SentencePattern | null; // undefined = 예전에 저장된 분석(판정 안 함), null = 판정이 애매해서 보여주지 않음
 }
 
 /** 문서별 AI 결과 캐시 (같은 문장·단어를 다시 묻지 않도록) */
