@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
 import { activeGrammar, useStore } from '@/lib/store';
 import { makeGrammarQuiz } from '@/lib/grammar';
-import { basicGrammarList, isBasicGrammarId, resolveBasicGrammar } from '@/lib/grammarBasics';
+import { basicGrammarList, isBasicGrammarId, PATTERN_SUMMARY, resolveBasicGrammar } from '@/lib/grammarBasics';
 import type { GrammarItem } from '@/lib/types';
 import { errorMessage } from '@/lib/util';
 import { TabBar } from '@/components/TabBar';
@@ -39,6 +39,14 @@ function GrammarList() {
           <span className="sr-only">문법 검색</span>
           <input type="search" placeholder="문법 이름으로 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
+
+        <Link href="/grammar/?view=patterns" className="card between" style={{ padding: "12px 16px", textDecoration: "none", color: "inherit" }}>
+          <span className="stack" style={{ gap: 2 }}>
+            <b>5형식 한눈에 보기</b>
+            <span className="small">다섯 문장 형식을 한 장으로 정리</span>
+          </span>
+          <span aria-hidden>→</span>
+        </Link>
 
         <div className="seg" role="tablist">
           {(
@@ -243,8 +251,74 @@ function GrammarDetail({ id }: { id: string }) {
   );
 }
 
+const ROLE_STYLE: Record<string, { bg: string; fg: string }> = {
+  S: { bg: 'var(--teal-soft-2)', fg: 'var(--teal-dark)' },
+  V: { bg: 'var(--amber-soft)', fg: 'var(--amber-ink)' },
+  O: { bg: 'var(--blue-soft)', fg: 'var(--blue-ink)' },
+  IO: { bg: 'var(--blue-soft)', fg: 'var(--blue-ink)' },
+  DO: { bg: 'var(--blue-soft)', fg: 'var(--blue-ink)' },
+  C: { bg: 'var(--red-soft)', fg: 'var(--red)' },
+  OC: { bg: 'var(--red-soft)', fg: 'var(--red)' },
+};
+
+function RoleChip({ role, text }: { role: string; text?: string }) {
+  const st = ROLE_STYLE[role] ?? { bg: 'var(--ground)', fg: 'var(--ink)' };
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <span style={{ background: st.bg, color: st.fg, borderRadius: 8, padding: '3px 10px', fontWeight: 700, fontFamily: text ? 'var(--font-read)' : undefined, fontSize: text ? 16 : 14 }}>{text ?? role}</span>
+      {text && <span className="small" style={{ fontWeight: 600 }}>{role}</span>}
+    </span>
+  );
+}
+
+function PatternOverview() {
+  return (
+    <>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Link href="/grammar/" className="icon-btn" aria-label="문법 노트로">
+            <Icon name="back" />
+          </Link>
+          <div className="topbar-title">
+            <strong>5형식 한눈에 보기</strong>
+            <span>S 주어 · V 동사 · O 목적어 · C 보어</span>
+          </div>
+          <span style={{ width: 44 }} />
+        </div>
+      </header>
+      <main className="page no-tabs">
+        {PATTERN_SUMMARY.map((p) => (
+          <Link key={p.n} href={`/grammar/?id=basic-pattern-${p.n}`} className="card stack" style={{ gap: 10, textDecoration: "none", color: "inherit" }}>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <b style={{ fontSize: 18, color: 'var(--teal)', marginRight: 4 }}>{p.n}형식</b>
+              {p.formula.map((r, i) => (
+                <span key={i} className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  {i > 0 && <span className="muted">+</span>}
+                  <RoleChip role={r} />
+                </span>
+              ))}
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
+              {p.parts.map((x, i) => (
+                <RoleChip key={i} role={x.role} text={x.text} />
+              ))}
+            </div>
+            <span className="muted">{p.ko}</span>
+            <span style={{ fontSize: 14 }}>{p.tip}</span>
+          </Link>
+        ))}
+        <div className="small" style={{ textAlign: 'center' }}>
+          카드를 누르면 자세한 설명과 연습 문제가 나와요.
+        </div>
+      </main>
+    </>
+  );
+}
+
 function GrammarInner() {
-  const id = useSearchParams().get('id') ?? '';
+  const params = useSearchParams();
+  const id = params.get('id') ?? '';
+  if (params.get('view') === 'patterns') return <PatternOverview />;
   return id ? <GrammarDetail id={id} /> : <GrammarList />;
 }
 

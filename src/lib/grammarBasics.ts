@@ -215,3 +215,20 @@ export function resolveBasicGrammar(data: AppData, id: string): GrammarItem | nu
 export function basicGrammarList(data: AppData): GrammarItem[] {
   return BASIC_GRAMMAR.map((g) => resolveBasicGrammar(data, g.id) as GrammarItem);
 }
+
+/** '5형식 한눈에 보기' 한 장 요약용 (직접 쓴 내용) */
+export interface PatternSummary {
+  n: 1 | 2 | 3 | 4 | 5;
+  formula: string[];
+  tip: string;
+  parts: { role: string; text: string }[];
+  ko: string;
+}
+
+export const PATTERN_SUMMARY: PatternSummary[] = [
+  { n: 1, formula: ['S', 'V'], tip: '동사만으로 뜻이 끝나요. 뒤의 시간·장소 말은 꾸밈말.', parts: [{ role: 'S', text: 'The pain' }, { role: 'V', text: 'disappeared' }], ko: '통증이 사라졌다.' },
+  { n: 2, formula: ['S', 'V', 'C'], tip: '보어(C)가 주어의 상태·정체를 설명해요. 주어 = 보어.', parts: [{ role: 'S', text: 'The wound' }, { role: 'V', text: 'looks' }, { role: 'C', text: 'infected' }], ko: '상처가 감염된 것처럼 보인다.' },
+  { n: 3, formula: ['S', 'V', 'O'], tip: '동사의 대상(목적어)이 필요해요. 가장 흔한 형식.', parts: [{ role: 'S', text: 'Exercise' }, { role: 'V', text: 'reduces' }, { role: 'O', text: 'back pain' }], ko: '운동은 허리 통증을 줄인다.' },
+  { n: 4, formula: ['S', 'V', 'IO', 'DO'], tip: '"~에게 ~을" 두 개를 줘요. 간접목적어(사람) + 직접목적어(물건).', parts: [{ role: 'S', text: 'The therapist' }, { role: 'V', text: 'gave' }, { role: 'IO', text: 'him' }, { role: 'DO', text: 'a stretching routine' }], ko: '치료사는 그에게 스트레칭 루틴을 주었다.' },
+  { n: 5, formula: ['S', 'V', 'O', 'OC'], tip: '목적격 보어(OC)가 목적어의 상태를 설명해요. 목적어 = OC.', parts: [{ role: 'S', text: 'Rest' }, { role: 'V', text: 'keeps' }, { role: 'O', text: 'the joint' }, { role: 'OC', text: 'stable' }], ko: '휴식은 관절을 안정되게 유지시킨다.' },
+];
