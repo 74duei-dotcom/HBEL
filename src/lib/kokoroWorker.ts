@@ -20,6 +20,15 @@ const BASE = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/$/, '');
 if (env.backends.onnx.wasm) env.backends.onnx.wasm.wasmPaths = `${self.location.origin}${BASE}/ort/`;
 if (isMobile && env.backends.onnx.wasm) env.backends.onnx.wasm.numThreads = 1;
 
+// 파일 받기가 실패했을 때 어떤 주소였는지 오류 메시지에 함께 보여 주기 위해 마지막 요청 주소를 기억
+let lastUrl = '';
+const origFetch = self.fetch.bind(self);
+self.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  lastUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+  ctx.postMessage({ stage: `파일 받는 중: ${lastUrl.replace(/^https?:\/\//, '').slice(0, 70)}` });
+  return origFetch(input, init);
+};
+
 let model: Promise<KokoroTTS> | null = null;
 let chain: Promise<unknown> = Promise.resolve();
 
@@ -56,7 +65,7 @@ ctx.onmessage = (e) => {
         const audio = await tts.generate(text ?? '', { voice: (voice ?? 'af_heart') as 'af_heart' });
         ctx.postMessage({ id, blob: audio.toBlob() });
       } catch (err) {
-        ctx.postMessage({ id, error: err instanceof Error ? err.message : String(err) });
+        ctx.postMessage({ id, error: `${err instanceof Error ? err.message : String(err)} [${lastUrl.replace(/^https?:\/\//, '').slice(0, 90)}]` });
       }
     });
 };
