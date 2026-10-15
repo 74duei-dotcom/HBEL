@@ -321,8 +321,9 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
       notifyFallback('오픈소스 음성 모델을 처음 한 번 내려받는 중이에요(약 90MB). 준비되면 자동으로 자연스러운 소리로 바뀌어요.');
       return false;
     }
-    const blob = await generateLocal(t);
-    await playBlob(blob, rate, mine, onEnd, onProgress, onStart);
+    // 저장된 소리가 있으면 통째로, 없으면 조각내어 첫 조각부터 재생 (기기에서 직접 만들기 때문에 짧게 나눌수록 빨리 시작)
+    const chunks = (await hasLocalAudio(t)) ? [t] : splitForSpeech(t, 50, 100, 60);
+    await playChunked(chunks, t.length, generateLocal, rate, mine, onEnd, onProgress, onStart);
     return true;
   } catch (e) {
     lastTtsError = e instanceof Error ? e.message : String(e);
@@ -330,14 +331,47 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
   }
 }
 
+/** 조각들을 차례로 재생: 조각을 재생하는 동안 다음 조각을 미리 만듦. 마지막까지 읽으면 onEnd */
+async function playChunked(
+  chunks: string[],
+  total: number,
+  getAudio: (t: string) => Promise<Blob>,
+  rate: number,
+  mine: number,
+  onEnd?: () => void,
+  onProgress?: (f: number) => void,
+  onStart?: () => void
+): Promise<void> {
+  if (chunks.length === 1) {
+    const blob = await getAudio(chunks[0]);
+    if (mine !== ticket) return;
+    await playBlob(blob, rate, mine, onEnd, onProgress, onStart);
+    return;
+  }
+  let offset = 0;
+  for (let k = 0; k < chunks.length; k++) {
+    const c = chunks[k];
+    if (chunks[k + 1]) void getAudio(chunks[k + 1]).catch(() => undefined); // 재생 중에 다음 조각 준비
+    const blob = await getAudio(c);
+    if (mine !== ticket) return;
+    const base = offset;
+    await new Promise<void>((resolve, reject) => {
+      playBlob(blob, rate, mine, () => resolve(), onProgress ? (f) => onProgress((base + f * c.length) / total) : undefined, k === 0 ? onStart : undefined).catch(reject);
+    });
+    offset += c.length + 1;
+    if (mine !== ticket) return;
+  }
+  if (mine === ticket) onEnd?.();
+}
+
 /** 긴 글을 소리 만들기 좋은 조각(문장·절)으로 나눔. 첫 조각은 짧게 해서 빨리 시작 */
-function splitForSpeech(text: string): string[] {
-  if (text.length <= 140) return [text];
-  const sentences = text.split(/(?<=[.!?])\s+/).flatMap((s) => (s.length > 180 ? s.split(/(?<=[,;:])\s+/) : [s]));
+function splitForSpeech(text: string, first = 90, rest = 160, minLen = 140): string[] {
+  if (text.length <= minLen) return [text];
+  const sentences = text.split(/(?<=[.!?])\s+/).flatMap((s) => (s.length > rest ? s.split(/(?<=[,;:])\s+/) : [s]));
   const out: string[] = [];
   let cur = '';
   for (const s of sentences) {
-    const limit = out.length === 0 ? 90 : 160;
+    const limit = out.length === 0 ? first : rest;
     if (cur && cur.length + s.length + 1 > limit) {
       out.push(cur);
       cur = s;
@@ -386,44 +420,10 @@ export function speak(text: string, rate = 1, onEnd?: () => void, onProgress?: (
       return;
     }
     try {
-      // 긴 글은 문장 단위로 나눠, 첫 조각이 만들어지면 바로 재생하고 다음 조각은 재생 중에 미리 만듦
-      const chunks = splitForSpeech(t);
-      if (chunks.length > 1) {
-        const total = t.length;
-        let offset = 0;
-        let started = false;
-        for (let k = 0; k < chunks.length; k++) {
-          const c = chunks[k];
-          const next = chunks[k + 1];
-          const nextP = next ? getGeminiAudio(next).catch(() => undefined) : undefined; // 재생 중에 다음 조각 준비
-          const blob = await getGeminiAudio(c);
-          if (mine !== ticket) return;
-          geminiFailures = 0;
-          lastTtsError = '';
-          const base = offset;
-          await new Promise<void>((resolve, reject) => {
-            playBlob(
-              blob,
-              rate,
-              mine,
-              () => resolve(),
-              onProgress ? (f) => onProgress((base + f * c.length) / total) : undefined,
-              !started ? onStart : undefined
-            ).catch(reject);
-          });
-          started = true;
-          offset += c.length + 1;
-          if (mine !== ticket) return;
-          void nextP;
-        }
-        if (mine === ticket) onEnd?.();
-        return;
-      }
-      const blob = await getGeminiAudio(t);
-      if (mine !== ticket) return;
+      // 긴 글은 문장 단위로 나눠, 첫 조각이 만들어지면 바로 재생
       geminiFailures = 0;
       lastTtsError = '';
-      await playBlob(blob, rate, mine, onEnd, onProgress, onStart);
+      await playChunked(splitForSpeech(t), t.length, getGeminiAudio, rate, mine, onEnd, onProgress, onStart);
     } catch (e) {
       if (mine !== ticket) return;
       geminiFailures++;
@@ -470,7 +470,7 @@ export function prefetchSpeech(texts: string[]): void {
   if (engine === 'device') return;
   if (engine === 'gemini' && (!getGeminiKeys().length || geminiFailures >= 2)) return;
   // 핸드폰: 오픈소스 음성은 누를 때만 만들고, Gemini는 지금 문장 하나만 미리 만듦 (배터리·한도 절약)
-  if (isMobileDevice() && engine === 'local') return;
+  if (isMobileDevice() && engine === 'local' && !isLocalReady()) return; // 모델 준비 전에는 내려받기를 시작하지 않음
   const run = ++prefetchRun;
   void (async () => {
     for (const t of texts.slice(0, isMobileDevice() ? 2 : 3)) {
@@ -478,7 +478,7 @@ export function prefetchSpeech(texts: string[]): void {
       const x = t.trim();
       if (!x) continue;
       try {
-        if (engine === 'local') await generateLocal(x);
+        if (engine === 'local') for (const c of splitForSpeech(x, 50, 100, 60).slice(0, 2)) await generateLocal(c);
         else for (const c of splitForSpeech(x).slice(0, 2)) await getGeminiAudio(c); // 재생할 때와 같은 조각으로 미리 만듦
       } catch {
         return;
