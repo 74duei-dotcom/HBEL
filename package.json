@@ -4,7 +4,7 @@
   "private": true,
   "description": "영어 서재 - 내 논문·영상으로 공부하는 개인용 영어 학습 앱 (PWA)",
   "scripts": {
-    "postinstall": "node scripts/copy-pdf-worker.mjs && node scripts/copy-ocr-files.mjs",
+    "postinstall": "node scripts/copy-pdf-worker.mjs && node scripts/copy-ocr-files.mjs && node scripts/copy-ort-files.mjs",
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "npx serve out -l 3000",

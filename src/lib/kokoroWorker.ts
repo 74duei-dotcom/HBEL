@@ -15,6 +15,9 @@ const ctx = self as unknown as { postMessage: (m: unknown) => void; onmessage: (
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 // 핸드폰·태블릿은 메모리를 아끼도록 계산 스레드를 1개로 제한 (여러 개면 메모리가 배로 늘어 멈출 수 있음)
 const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(self.navigator.userAgent) || (/Macintosh/i.test(self.navigator.userAgent) && self.navigator.maxTouchPoints > 1);
+// 음성 엔진 파일을 외부 CDN이 아니라 이 앱 주소(public/ort)에서 불러옴
+const BASE = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/$/, '');
+if (env.backends.onnx.wasm) env.backends.onnx.wasm.wasmPaths = `${self.location.origin}${BASE}/ort/`;
 if (isMobile && env.backends.onnx.wasm) env.backends.onnx.wasm.numThreads = 1;
 
 let model: Promise<KokoroTTS> | null = null;
@@ -22,7 +25,7 @@ let chain: Promise<unknown> = Promise.resolve();
 
 function load(): Promise<KokoroTTS> {
   if (!model) {
-    ctx.postMessage({ stage: '모델 불러오는 중…' });
+    ctx.postMessage({ stage: '모델 파일 받는 중…' });
     model = KokoroTTS.from_pretrained(MODEL_ID, {
       dtype: 'q8',
       device: 'wasm',
