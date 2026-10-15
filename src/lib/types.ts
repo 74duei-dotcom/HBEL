@@ -94,6 +94,7 @@ export interface GrammarExample {
   page: number;
   sentence: string;
   part: string;
+  ko?: string; // 한글 번역 (기본 예문에만 있음)
 }
 
 export interface GrammarQuiz {
@@ -116,6 +117,7 @@ export interface GrammarItem {
   createdAt: string;
   updatedAt: string;
   deleted?: boolean;
+  builtin?: boolean; // 앱에 기본으로 들어 있는 문법 (지울 수 없음)
 }
 
 /** 간격 반복(FSRS) 카드 상태 - 날짜는 ISO 문자열로 저장 */

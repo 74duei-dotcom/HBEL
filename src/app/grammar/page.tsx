@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
 import { activeGrammar, useStore } from '@/lib/store';
 import { makeGrammarQuiz } from '@/lib/grammar';
+import { basicGrammarList, isBasicGrammarId, resolveBasicGrammar } from '@/lib/grammarBasics';
 import type { GrammarItem } from '@/lib/types';
 import { errorMessage } from '@/lib/util';
 import { TabBar } from '@/components/TabBar';
@@ -16,15 +17,17 @@ function GrammarList() {
   const { data } = useStore();
   const [status, setStatus] = useState<StatusFilter>('learning');
   const [query, setQuery] = useState('');
-  const all = useMemo(() => activeGrammar(data), [data]);
+  const basics = useMemo(() => basicGrammarList(data), [data]);
+  const saved = useMemo(() => activeGrammar(data).filter((g) => !isBasicGrammarId(g.id)), [data]);
+  const all = useMemo(() => [...basics, ...saved], [basics, saved]);
   const counts = { learning: all.filter((g) => g.status === 'learning').length, known: all.filter((g) => g.status === 'known').length, all: all.length };
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return all
-      .filter((g) => status === 'all' || g.status === status)
-      .filter((g) => !q || g.name.includes(q) || g.nameEn.includes(q))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [all, status, query]);
+    const pick = (items: GrammarItem[]) =>
+      items.filter((g) => status === 'all' || g.status === status).filter((g) => !q || g.name.toLowerCase().includes(q) || g.nameEn.toLowerCase().includes(q));
+    // 기본 문법은 1~5형식 순서 그대로, 내 자료에서 저장한 것은 최근 순
+    return [...pick(basics), ...pick(saved).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))];
+  }, [basics, saved, status, query]);
 
   return (
     <>
@@ -51,17 +54,7 @@ function GrammarList() {
           ))}
         </div>
 
-        {all.length === 0 ? (
-          <div className="card stack" style={{ textAlign: 'center', padding: 24 }}>
-            <b>아직 저장한 문법이 없어요</b>
-            <span className="muted">
-              자료를 읽다가 문장을 고르고 <b>문법</b> 버튼을 누르면 문법을 분석해 줘요. 마음에 드는 항목을 &quot;노트에 저장&quot;하면 여기에 모여요.
-            </span>
-            <Link href="/" className="btn primary">
-              내 자료로 가기
-            </Link>
-          </div>
-        ) : list.length === 0 ? (
+        {list.length === 0 ? (
           <div className="muted" style={{ textAlign: 'center', padding: 16 }}>
             조건에 맞는 문법이 없어요.
           </div>
@@ -72,12 +65,24 @@ function GrammarList() {
                 <div className="grow stack" style={{ gap: 2 }}>
                   <b style={{ fontSize: 16 }}>{g.name}</b>
                   <span className="small">
-                    {g.nameEn} · 내 자료 예문 {g.examples.length}개
+                    {g.nameEn} · {g.builtin ? '기본 문법' : `내 자료 예문 ${g.examples.length}개`}
                   </span>
                 </div>
                 {g.status === 'known' ? <span className="chip ok">알아요</span> : <span className="chip later">공부 중</span>}
               </Link>
             ))}
+          </div>
+        )}
+
+        {saved.length === 0 && (
+          <div className="card stack" style={{ textAlign: 'center', padding: 20 }}>
+            <b>내 자료에서 뽑은 문법은 아직 없어요</b>
+            <span className="muted">
+              자료를 읽다가 문장을 고르고 <b>문법</b> 버튼을 누르면 문법을 분석해 줘요. 마음에 드는 항목을 &quot;노트에 저장&quot;하면 여기에 모여요.
+            </span>
+            <Link href="/" className="btn">
+              내 자료로 가기
+            </Link>
           </div>
         )}
       </main>
@@ -114,9 +119,11 @@ function Quiz({ item }: { item: GrammarItem }) {
     <div className="stack">
       <div className="between">
         <b>연습 문제</b>
-        <button className="btn sm" disabled={loading} onClick={() => void make()}>
-          {loading ? '만드는 중…' : item.quiz.length ? '새 문제 만들기' : '문제 만들기'}
-        </button>
+        {!item.builtin && (
+          <button className="btn sm" disabled={loading} onClick={() => void make()}>
+            {loading ? '만드는 중…' : item.quiz.length ? '새 문제 만들기' : '문제 만들기'}
+          </button>
+        )}
       </div>
       {err && <div className="banner err">{err}</div>}
       {item.quiz.length === 0 && !loading && <div className="muted">내 자료의 예문을 바탕으로 객관식 3문제를 만들어 줘요.</div>}
@@ -158,7 +165,7 @@ function Quiz({ item }: { item: GrammarItem }) {
 function GrammarDetail({ id }: { id: string }) {
   const router = useRouter();
   const { data, ready, upsertGrammar, removeGrammar } = useStore();
-  const item = data.grammar?.[id];
+  const item = resolveBasicGrammar(data, id) ?? data.grammar?.[id];
 
   if (!ready) return <main className="page no-tabs muted">불러오는 중…</main>;
   if (!item || item.deleted) {
@@ -207,23 +214,30 @@ function GrammarDetail({ id }: { id: string }) {
         </div>
 
         <div className="stack">
-          <b>내 자료 예문 ({item.examples.length})</b>
+          <b>
+            {item.builtin ? '예문' : '내 자료 예문'} ({item.examples.length})
+          </b>
           {item.examples.map((e, i) => (
             <div className="card stack" key={i} style={{ gap: 6 }}>
               <span style={{ fontFamily: 'var(--font-read)', fontSize: 16, lineHeight: 1.5 }}>{e.sentence}</span>
+              {e.ko && <span className="muted">{e.ko}</span>}
               {e.part && <span style={{ fontFamily: 'var(--font-read)', fontSize: 14, background: 'var(--amber-soft)', borderRadius: 6, padding: '2px 6px', alignSelf: 'flex-start' }}>{e.part}</span>}
-              <Link href={`/reader/?id=${encodeURIComponent(e.docId)}`} className="small" style={{ fontWeight: 600 }}>
-                {e.docTitle} · {e.page + 1}쪽 →
-              </Link>
+              {e.docId && (
+                <Link href={`/reader/?id=${encodeURIComponent(e.docId)}`} className="small" style={{ fontWeight: 600 }}>
+                  {e.docTitle} · {e.page + 1}쪽 →
+                </Link>
+              )}
             </div>
           ))}
         </div>
 
         <Quiz item={item} />
 
-        <button className="btn danger" onClick={remove}>
-          <Icon name="trash" size={16} /> 문법 노트에서 지우기
-        </button>
+        {!item.builtin && (
+          <button className="btn danger" onClick={remove}>
+            <Icon name="trash" size={16} /> 문법 노트에서 지우기
+          </button>
+        )}
       </main>
     </>
   );
