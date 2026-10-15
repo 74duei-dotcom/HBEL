@@ -55,5 +55,6 @@
 - [x] 5형식 이어서(B): 리더 문법 창에 "N형식" 판정 + 성분별 표시(주어·동사·목적어…), 기본 문법 설명으로 연결. AI 판정은 성분 순서·원문 일치를 코드로 검사해 틀린 건 숨김(src/lib/grammar.ts checkPattern). 실제 AI 키로 판정 품질은 사용자 점검 필요
 - [x] 5형식 한눈에 보기(C): 문법 노트 맨 위 카드 → 한 장 요약 화면(/grammar/?view=patterns, 형식별 공식·색 구분 예문·핵심 팁, 카드 누르면 상세)
 - [x] 8품사 한눈에 보기(D): 문법 노트 카드 → /grammar/?view=parts (8개 품사 설명·예문 단어별 한글 발음·번역, src/lib/grammarBasics.ts POS_SUMMARY)
+- [x] 알파벳 소리표: 홈·발음 연습 화면 카드 → /pronounce/?view=alphabet (글자 이름·단어 속 소리·팁, 같은 글자 다른 소리, 두 글자 소리; src/lib/alphabet.ts, src/components/AlphabetSheet.tsx)
 - [ ] (선택) PC 도우미(Python): 드라이브 폴더 감시, 영상 압축 — 큰 영상(700MB 초과)이 필요해질 때만
 - [ ] (선택) Capacitor로 APK 만들기 — Android용 OAuth 클라이언트 별도 필요
