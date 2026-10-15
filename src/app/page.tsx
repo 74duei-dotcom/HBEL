@@ -22,7 +22,12 @@ export default function HomePage() {
   const { data, ready } = useStore();
   const [mounted, setMounted] = useState(false);
   const [setupDone, setSetupDone] = useState(true);
+  const [tab, setTab] = useState<'all' | 'pdf' | 'video'>('all');
   useEffect(() => {
+    try {
+      const t = localStorage.getItem('hbel.homeTab');
+      if (t === 'pdf' || t === 'video' || t === 'all') setTab(t);
+    } catch {}
     setMounted(true);
     setSetupDone(lsGet(LS_KEYS.setupDone) === '1');
   }, []);
@@ -30,6 +35,15 @@ export default function HomePage() {
   const docs = useMemo(() => activeDocs(data), [data]);
   const queue = useMemo(() => buildQueue(activeVocab(data), data.prefs.newPerDay), [data]);
   const newCount = queue.filter((v) => v.card.reps === 0).length;
+  const pdfDocs = useMemo(() => docs.filter((d) => d.kind !== 'lecture'), [docs]);
+  const videoDocs = useMemo(() => docs.filter((d) => d.kind === 'lecture'), [docs]);
+  const shownDocs = tab === 'pdf' ? pdfDocs : tab === 'video' ? videoDocs : docs;
+  const changeTab = (t: 'all' | 'pdf' | 'video') => {
+    setTab(t);
+    try {
+      localStorage.setItem('hbel.homeTab', t);
+    } catch {}
+  };
   const lastRead = docs.find((d) => d.status === 'ready');
   const today = mounted ? new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' }) : '';
 
@@ -97,11 +111,27 @@ export default function HomePage() {
 
         {docs.length > 0 && (
           <section className="stack">
-            <div className="between">
-              <h2 style={{ margin: 0, fontSize: 17 }}>자료 {docs.length}</h2>
+            <div className="seg" role="tablist" aria-label="자료 종류">
+              {(
+                [
+                  ['all', '전체', docs.length],
+                  ['pdf', 'PDF', pdfDocs.length],
+                  ['video', '동영상', videoDocs.length],
+                ] as const
+              ).map(([key, label, count]) => (
+                <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => changeTab(key)}>
+                  {label} {count}
+                </button>
+              ))}
             </div>
+            {shownDocs.length === 0 && (
+              <div className="card">
+                <span className="muted">{tab === 'video' ? '아직 올린 동영상이 없어요' : '아직 올린 PDF가 없어요'}</span>
+              </div>
+            )}
+            {shownDocs.length > 0 && (
             <div className="card flush">
-              {docs.map((d) => (
+              {shownDocs.map((d) => (
                 <Link key={d.id} href={d.status === 'ready' ? `/reader/?id=${d.id}` : '/upload/'} className="list-row">
                   <span className="icon-btn" style={{ background: KIND_STYLE[d.kind].bg, color: KIND_STYLE[d.kind].fg, borderRadius: 10, width: 40, height: 40 }} aria-hidden="true">
                     <Icon name={d.kind === 'lecture' ? 'play' : 'pdf'} size={19} />
@@ -123,6 +153,7 @@ export default function HomePage() {
                 </Link>
               ))}
             </div>
+            )}
           </section>
         )}
 
