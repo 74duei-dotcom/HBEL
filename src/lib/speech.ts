@@ -20,7 +20,10 @@ const AUDIO_VER = 'v2';
 
 /** 핸드폰·태블릿인지 (오픈소스 음성 모델은 무거워서 PC에서만 기본으로 씀) */
 export function isMobileDevice(): boolean {
-  return typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  if (typeof navigator === 'undefined') return false;
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) return true;
+  // iPadOS의 Safari는 자신을 맥(Macintosh)이라고 알리지만 터치 화면이 있음 → 아이패드로 판단
+  return /Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
 }
 /** 설정에서 오픈소스 음성을 직접 골랐는지 */
 function chosenLocal(): boolean {
