@@ -2,6 +2,7 @@
 // → 모델을 불러오거나 문장 소리를 만드는 동안에도 화면(버튼·스크롤)이 멈추지 않음
 import { KokoroTTS } from 'kokoro-js';
 import { env } from '@huggingface/transformers';
+import { phonemize } from 'phonemizer';
 
 interface Req {
   id: number;
@@ -83,6 +84,23 @@ function load(): Promise<KokoroTTS> {
   return model;
 }
 
+/** 단계가 제한 시간 안에 끝나지 않으면 어느 단계에서 멈췄는지 알리는 오류로 바꿈 */
+function withLimit<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${what} 단계에서 ${Math.round(ms / 1000)}초 넘게 멈춰서 중단했어요.`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      }
+    );
+  });
+}
+
 ctx.onmessage = (e) => {
   const { id, type, text, voice } = e.data;
   // 한 번에 하나씩 차례로 처리
@@ -96,7 +114,12 @@ ctx.onmessage = (e) => {
           ctx.postMessage({ id, ok: true });
           return;
         }
-        const audio = await tts.generate(text ?? '', { voice: (voice ?? 'af_heart') as 'af_heart' });
+        const name = engineName;
+        // 단계별로 나눠 진행 상황을 알리고, 멈추면 어느 단계인지 알려 줌
+        ctx.postMessage({ stage: `1/3 영어를 발음 기호로 바꾸는 중(${name})…` });
+        await withLimit(phonemize((text ?? '').slice(0, 200), 'en-us'), 90_000, '1/3 발음 기호 변환');
+        ctx.postMessage({ stage: `2·3/3 목소리 준비와 소리 계산 중(${name})…` });
+        const audio = await withLimit(tts.generate(text ?? '', { voice: (voice ?? 'af_heart') as 'af_heart' }), 240_000, '2·3/3 소리 계산');
         ctx.postMessage({ id, blob: audio.toBlob() });
       } catch (err) {
         ctx.postMessage({ id, error: `${err instanceof Error ? err.message : String(err)} [${lastUrl.replace(/^https?:\/\//, '').slice(0, 90)}]` });
