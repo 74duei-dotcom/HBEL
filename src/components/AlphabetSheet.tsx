@@ -1,6 +1,7 @@
 'use client';
-// 알파벳 소리표 한 장 화면 + 바로가기 카드 (홈·발음 연습에서 공통 사용)
+// 알파벳 소리표: 2열 타일로 한 화면에 최대한 많이 보이게. 팁은 타일을 누르면 펼침 (홈·발음 연습 공통 사용)
 import Link from 'next/link';
+import { useState } from 'react';
 import { ALPHABET, ALPHABET_EXAMPLES, DIGRAPHS } from '@/lib/alphabet';
 import { Icon } from '@/components/Icon';
 
@@ -16,7 +17,10 @@ export function AlphabetLinkCard() {
   );
 }
 
+const grid2 = { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 } as const;
+
 export function AlphabetSheet() {
+  const [open, setOpen] = useState('');
   return (
     <>
       <header className="topbar">
@@ -26,58 +30,77 @@ export function AlphabetSheet() {
           </Link>
           <div className="topbar-title">
             <strong>알파벳 소리표</strong>
-            <span>알파벳의 이름과 단어 속 소리는 다릅니다</span>
+            <span>이름이 아니라 단어 속 소리를 익혀요</span>
           </div>
           <span style={{ width: 44 }} />
         </div>
       </header>
-      <main className="page no-tabs">
-        <div className="card flush">
-          <div className="list-row small" style={{ fontWeight: 600, gap: 8 }}>
-            <span style={{ width: 28 }}>글자</span>
-            <span style={{ width: 64 }}>이름</span>
-            <span className="grow">단어 속 소리</span>
-          </div>
-          {ALPHABET.map((r) => (
-            <div key={r.letter} className="list-row" style={{ gap: 8, alignItems: 'flex-start' }}>
-              <b style={{ width: 28, fontSize: 24, lineHeight: 1.1, color: 'var(--teal)' }}>{r.letter}</b>
-              <span style={{ width: 64, fontSize: 15, paddingTop: 3 }}>{r.name}</span>
-              <span className="grow stack" style={{ gap: 2 }}>
-                <b style={{ fontSize: 15, paddingTop: 3 }}>{r.sounds}</b>
-                {r.tip && <span className="small">{r.tip}</span>}
+      <main className="page no-tabs" style={{ gap: 12 }}>
+        <div style={grid2}>
+          {ALPHABET.map((r) => {
+            const isOpen = open === r.letter;
+            return (
+              <button
+                key={r.letter}
+                type="button"
+                className="card"
+                onClick={() => r.tip && setOpen(isOpen ? '' : r.letter)}
+                aria-expanded={r.tip ? isOpen : undefined}
+                style={{
+                  padding: '5px 10px',
+                  textAlign: 'left',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: '0 8px',
+                  cursor: r.tip ? 'pointer' : 'default',
+                  gridColumn: isOpen ? '1 / -1' : undefined,
+                  borderColor: isOpen ? 'var(--teal)' : undefined,
+                }}
+              >
+                <b style={{ fontSize: 22, lineHeight: 1, color: 'var(--teal)', width: 22, textAlign: 'center' }}>{r.letter}</b>
+                <span className="stack" style={{ gap: 1, flex: 1, minWidth: 0 }}>
+                  <b style={{ fontSize: 13, lineHeight: 1.25 }}>{r.sounds}</b>
+                  <span className="small">{r.name}</span>
+                </span>
+                {r.tip && <span aria-hidden style={{ color: 'var(--ink-2)', fontSize: 11 }}>{isOpen ? '▲' : 'ⓘ'}</span>}
+                {isOpen && r.tip && <span className="small" style={{ flexBasis: '100%', marginTop: 6, color: 'var(--ink)' }}>{r.tip}</span>}
+              </button>
+            );
+          })}
+        </div>
+        <span className="small">ⓘ 표시 타일을 누르면 발음 팁이 펼쳐져요.</span>
+
+        <b style={{ fontSize: 15 }}>같은 글자, 다른 소리</b>
+        <div style={grid2}>
+          {ALPHABET_EXAMPLES.map((e) => (
+            <div key={e.letter} className="card" style={{ padding: '8px 10px', borderLeft: `4px solid ${e.color}`, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <b style={{ fontSize: 22, lineHeight: 1.1, color: e.color }}>{e.letter}</b>
+              <span style={{ fontFamily: 'var(--font-read)', fontSize: 14, lineHeight: 1.45 }}>
+                {e.words.map((w) => (
+                  <span key={w.en} style={{ display: 'block' }}>
+                    {w.en} <span className="muted">{w.ko}</span>
+                  </span>
+                ))}
               </span>
             </div>
           ))}
         </div>
 
-        <b>같은 글자, 다른 소리</b>
-        {ALPHABET_EXAMPLES.map((e) => (
-          <div key={e.letter} className="card row" style={{ gap: 12, alignItems: 'center', flexWrap: 'wrap', borderLeft: `4px solid ${e.color}` }}>
-            <b style={{ fontSize: 28, color: e.color, width: 28 }}>{e.letter}</b>
-            {e.words.map((w) => (
-              <span key={w.en} style={{ fontFamily: 'var(--font-read)', fontSize: 18 }}>
-                {w.en} <span className="muted">({w.ko})</span>
-              </span>
-            ))}
-          </div>
-        ))}
-
-        <b>두 글자가 합쳐지는 소리</b>
-        <div className="card flush">
+        <b style={{ fontSize: 15 }}>두 글자가 합쳐지는 소리</b>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {DIGRAPHS.map((d) => (
-            <div key={d.en} className="list-row" style={{ gap: 8 }}>
-              <b style={{ width: 40, fontSize: 18, color: 'var(--teal)' }}>{d.en}</b>
-              <span className="grow" style={{ fontSize: 14 }}>{d.sound}</span>
+            <span key={d.en} className="chip later" style={{ background: 'var(--surface)', border: '1px solid var(--line)', color: 'var(--ink)', gap: 6 }}>
+              <b style={{ color: 'var(--teal)' }}>{d.en}</b>
               <span style={{ fontFamily: 'var(--font-read)' }}>
-                {d.word} <span className="muted">({d.ko})</span>
+                {d.word}({d.ko})
               </span>
-            </div>
+            </span>
           ))}
         </div>
 
-        <div className="card stack" style={{ background: 'var(--teal)', color: '#fff', textAlign: 'center', gap: 4 }}>
-          <span>알파벳의 이름을 읽는 것이 아니라</span>
-          <b style={{ fontSize: 18 }}>단어 안에서 나는 소리를 익힌다!</b>
+        <div className="card" style={{ background: 'var(--teal)', color: '#fff', textAlign: 'center', padding: '10px 12px', fontSize: 14 }}>
+          알파벳의 이름을 읽는 게 아니라 <b>단어 안에서 나는 소리</b>를 익힌다!
         </div>
         <span className="small">한글 발음은 영어 소리를 이해하기 위한 근사 표기예요. 정확한 소리는 &apos;원어민 소리 듣기&apos;로 확인하세요.</span>
       </main>
