@@ -6,7 +6,7 @@
 import { get as idbGet, set as idbSet } from 'idb-keyval';
 
 const VOICE = 'af_heart'; // 미국 영어 여성 음성 (Kokoro 음성 중 품질 최상)
-const AUDIO_VER = 'k1';
+const AUDIO_VER = 'k2'; // 무음 자르기 적용 이후 버전
 
 let worker: Worker | null = null;
 let nextId = 1;

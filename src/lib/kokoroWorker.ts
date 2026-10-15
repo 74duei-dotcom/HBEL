@@ -89,6 +89,37 @@ function withLimit<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   });
 }
 
+/** 앞뒤의 무음을 잘라 WAV로 만듦 (조각 사이·쉼표에서 길게 쉬는 것을 막음) */
+function trimmedWav(samples: Float32Array, rate: number): Blob {
+  const th = 0.008;
+  let a = 0;
+  let b = samples.length;
+  while (a < b && Math.abs(samples[a]) < th) a++;
+  while (b > a && Math.abs(samples[b - 1]) < th) b--;
+  const pad = Math.round(rate * 0.04); // 너무 딱 잘리지 않게 40ms 여유
+  a = Math.max(0, a - pad);
+  b = Math.min(samples.length, b + pad);
+  const n = b - a;
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const w = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF');
+  v.setUint32(4, 36 + n * 2, true);
+  w(8, 'WAVE');
+  w(12, 'fmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  w(36, 'data');
+  v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[a + i])) * 32767, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
 ctx.onmessage = (e) => {
   const { id, type, text, voice } = e.data;
   // 한 번에 하나씩 차례로 처리
@@ -108,7 +139,7 @@ ctx.onmessage = (e) => {
         await withLimit(phonemize((text ?? '').slice(0, 200), 'en-us'), 90_000, '1/3 발음 기호 변환');
         ctx.postMessage({ stage: `2·3/3 목소리 준비와 소리 계산 중(${name})…` });
         const audio = await withLimit(tts.generate(text ?? '', { voice: (voice ?? 'af_heart') as 'af_heart' }), 240_000, '2·3/3 소리 계산');
-        ctx.postMessage({ id, blob: audio.toBlob() });
+        ctx.postMessage({ id, blob: trimmedWav(audio.audio, audio.sampling_rate) });
       } catch (err) {
         ctx.postMessage({ id, error: `${err instanceof Error ? err.message : String(err)} [${caps} ${hiddenError}]` });
       }

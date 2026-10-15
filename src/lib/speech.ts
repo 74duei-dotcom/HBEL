@@ -322,7 +322,7 @@ async function localSpeak(t: string, rate: number, mine: number, onEnd?: () => v
       return false;
     }
     // 저장된 소리가 있으면 통째로, 없으면 조각내어 첫 조각부터 재생 (기기에서 직접 만들기 때문에 짧게 나눌수록 빨리 시작)
-    const chunks = (await hasLocalAudio(t)) ? [t] : splitForSpeech(t, 50, 100, 60);
+    const chunks = (await hasLocalAudio(t)) ? [t] : splitForSpeech(t, 60, 140, 80);
     await playChunked(chunks, t.length, generateLocal, rate, mine, onEnd, onProgress, onStart);
     return true;
   } catch (e) {
@@ -351,7 +351,7 @@ async function playChunked(
   let offset = 0;
   for (let k = 0; k < chunks.length; k++) {
     const c = chunks[k];
-    if (chunks[k + 1]) void getAudio(chunks[k + 1]).catch(() => undefined); // 재생 중에 다음 조각 준비
+    for (const nx of chunks.slice(k + 1, k + 3)) void getAudio(nx).catch(() => undefined); // 재생 중에 다음 두 조각 준비 (끊김 방지)
     const blob = await getAudio(c);
     if (mine !== ticket) return;
     const base = offset;
@@ -478,7 +478,7 @@ export function prefetchSpeech(texts: string[]): void {
       const x = t.trim();
       if (!x) continue;
       try {
-        if (engine === 'local') for (const c of splitForSpeech(x, 50, 100, 60).slice(0, 2)) await generateLocal(c);
+        if (engine === 'local') for (const c of splitForSpeech(x, 60, 140, 80).slice(0, 2)) await generateLocal(c);
         else for (const c of splitForSpeech(x).slice(0, 2)) await getGeminiAudio(c); // 재생할 때와 같은 조각으로 미리 만듦
       } catch {
         return;

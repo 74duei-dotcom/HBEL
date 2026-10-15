@@ -77,10 +77,24 @@ export function lookupWord(word: string, sentence: string, kind: DocKind, onPart
 
 /** 이 음절 수보다 길면 규칙 발음이 어색할 수 있어 AI 발음을 쓴다 */
 const LOCAL_PRON_MAX_SYLLABLES = 5;
+let localPronOff = false;
 
 async function lookupWordNow(word: string, sentence: string, kind: DocKind, onPartial?: (partial: WordInfo) => void): Promise<WordInfo> {
   // 발음(IPA·한글·음절)은 이 기기에서 바로 만들고, AI에게는 뜻·어원·문맥 설명만 묻는다 (더 빠르고 한도도 덜 씀)
-  const pron = await localPronunciation(word).catch(() => null);
+  // 이 기기에서 발음 만들기가 멈추는 기기도 있어 6초만 기다리고, 한 번 멈추면 이번 접속에서는 AI 발음으로 대신함
+  let pronTimer: ReturnType<typeof setTimeout> | undefined;
+  const pron = localPronOff
+    ? null
+    : await Promise.race([
+        localPronunciation(word).catch(() => null),
+        new Promise<null>((r) => {
+          pronTimer = setTimeout(() => {
+            localPronOff = true;
+            r(null);
+          }, 6000);
+        }),
+      ]);
+  clearTimeout(pronTimer);
   const useLocal = !!pron && pron.syllables.length <= LOCAL_PRON_MAX_SYLLABLES;
   if (useLocal && pron) {
     onPartial?.({ word, lemma: word.toLowerCase(), pos: '', ipa: pron.ipa, syllables: pron.syllables, hangul: pron.hangul, meaning: '', isMedical: false, etymology: '', contextNote: '', hv: HANGUL_VERSION });
