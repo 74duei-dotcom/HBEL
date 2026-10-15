@@ -271,6 +271,16 @@ function RoleChip({ role, text }: { role: string; text?: string }) {
   );
 }
 
+const ROLE_LEGEND: [string, string, string][] = [
+  ['S', '주어 (Subject)', '"~은/는, ~이/가" — 동작이나 상태의 주인공. 예: The pain(통증이)'],
+  ['V', '동사 (Verb)', '"~하다, ~이다" — 문장의 움직임·상태를 말해요. 예: disappeared(사라졌다)'],
+  ['O', '목적어 (Object)', '"~을/를" — 동사의 대상. 예: back pain(허리 통증을)'],
+  ['IO', '간접목적어 (Indirect Object)', '"~에게" — 받는 사람. 예: him(그에게)'],
+  ['DO', '직접목적어 (Direct Object)', '"~을/를" — 주고받는 물건·내용. 예: a stretching routine(스트레칭 루틴을)'],
+  ['C', '보어 (Complement)', '주어가 어떤 상태·무엇인지 설명. 예: infected(감염된)'],
+  ['OC', '목적격 보어 (Object Complement)', '목적어가 어떤 상태인지 설명. 예: the joint stable → stable(안정된)'],
+];
+
 function PatternOverview() {
   return (
     <>
@@ -287,6 +297,19 @@ function PatternOverview() {
         </div>
       </header>
       <main className="page no-tabs">
+        <div className="card stack" style={{ gap: 8 }}>
+          <b>기호가 뜻하는 것</b>
+          {ROLE_LEGEND.map(([r, name, desc]) => (
+            <div key={r} className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
+              <span style={{ minWidth: 44, display: 'inline-flex', justifyContent: 'center' }}>
+                <RoleChip role={r} />
+              </span>
+              <span style={{ fontSize: 14, lineHeight: 1.5 }}>
+                <b>{name}</b> · {desc}
+              </span>
+            </div>
+          ))}
+        </div>
         {PATTERN_SUMMARY.map((p) => (
           <Link key={p.n} href={`/grammar/?id=basic-pattern-${p.n}`} className="card stack" style={{ gap: 10, textDecoration: "none", color: "inherit" }}>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
