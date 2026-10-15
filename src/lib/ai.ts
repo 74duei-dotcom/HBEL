@@ -279,6 +279,63 @@ export function callAI(system: string, user: string, maxTokens: number, opts?: A
   return callGemini(system, user, maxTokens, undefined, opts);
 }
 
+/**
+ * 답이 만들어지는 대로 조금씩 받아 onText에 지금까지의 글자를 전달 (끝까지 기다리지 않아 화면이 먼저 채워짐)
+ * 스트리밍이 안 되면(오류 등) 일반 방식으로 자동 대체
+ */
+export async function callAIStream(system: string, user: string, maxTokens: number, onText: (soFar: string) => void, opts?: AIOptions): Promise<string> {
+  const key = getGeminiKeys()[geminiStart] ?? getGeminiKeys()[0];
+  if (!key) throw new AIError('no-key', 'gemini', 'Gemini API 키가 없어요. 설정에서 입력해 주세요.');
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      signal: opts?.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: 'user', parts: [{ text: user }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: Math.max(1024, maxTokens * 2),
+          temperature: 0.2,
+          ...(THINK_MODES[thinkMode] ? { thinkingConfig: THINK_MODES[thinkMode] } : {}),
+        },
+      }),
+    });
+    if (!res.ok || !res.body) throw new Error('stream-failed');
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let all = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        try {
+          const j = JSON.parse(line.slice(5).trim());
+          const parts: { text?: string; thought?: boolean }[] = j?.candidates?.[0]?.content?.parts ?? [];
+          const add = parts.filter((x) => !x.thought).map((x) => x.text ?? '').join('');
+          if (add) {
+            all += add;
+            onText(all);
+          }
+        } catch {
+          /* 덜 도착한 줄은 무시 */
+        }
+      }
+    }
+    if (!all) throw new Error('empty');
+    return all;
+  } catch {
+    return callAI(system, user, maxTokens, opts);
+  }
+}
+
 /** 녹음한 소리와 함께 Gemini에게 물어봄 (소리 입력은 Gemini만 가능 - 제공자 설정과 상관없이 Gemini 키를 사용) */
 export function callGeminiWithAudio(system: string, user: string, audio: AudioInput, maxTokens: number): Promise<string> {
   return callGemini(system, user, maxTokens, audio);

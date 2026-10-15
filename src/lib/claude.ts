@@ -4,7 +4,7 @@
 // - 문장 분석: 번역 + 단어별 한글 발음(연음 반영)
 
 import { localPronunciation } from './phonetics';
-import { AIError, callAI, getProvider } from './ai';
+import { AIError, callAI, callAIStream, getProvider } from './ai';
 import type { DocKind, SentenceAnalysis, WordInfo } from './types';
 import { tokenize } from './util';
 
@@ -98,10 +98,34 @@ Be fast and concise. Return ONLY a JSON object, no prose, with these keys:
  "pos": string (Korean part of speech, e.g. "명사","동사","형용사","부사","구동사"),
 ${pronKeys} "meaning": string (concise Korean meaning that fits THIS sentence; for medical terms give the standard Korean medical term, e.g. "척추전방전위증"),
  "isMedical": boolean (true if a medical/anatomical/clinical term),
- "etymology": string (Korean, ONE short line on the word's origin for EVERY word: source language + original word + its meaning, e.g. "라틴어 ex(밖으로) + premere(누르다) → 짜내다 → 표현하다"; for medical terms break into morphemes like "spondylo 척추 + olisthesis 미끄러짐"),
- "contextNote": string (one short Korean sentence explaining the meaning in this context)}${pronRules}`;
+ "contextNote": string (one short Korean sentence explaining the meaning in this context),
+ "etymology": string (Korean, ONE short line on the word's origin for EVERY word: source language + original word + its meaning, e.g. "라틴어 ex(밖으로) + premere(누르다) → 짜내다 → 표현하다"; for medical terms break into morphemes like "spondylo 척추 + olisthesis 미끄러짐")}
+Output keys in exactly this order (word, lemma, pos, meaning first).${pronRules}`;
   const user = `Word: ${word}\nSentence: ${sentence}`;
-  const text = await callAI(system, user, useLocal ? 300 : 400, { timeoutMs: 60000, priority: 'user' });
+  // 답이 오는 대로 뜻·품사를 먼저 화면에 채움 (끝까지 기다리지 않음)
+  const base: WordInfo = { word, lemma: word.toLowerCase(), pos: '', ipa: pron?.ipa ?? '', syllables: pron?.syllables ?? [], hangul: pron?.hangul ?? '', meaning: '', isMedical: false, etymology: '', contextNote: '', hv: HANGUL_VERSION };
+  const seen: Record<string, string> = {};
+  const field = (soFar: string, k: string): string | undefined => {
+    const m = new RegExp(`"${k}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(soFar);
+    if (!m) return undefined;
+    try {
+      return JSON.parse(`"${m[1]}"`) as string;
+    } catch {
+      return undefined;
+    }
+  };
+  const text = await callAIStream(system, user, useLocal ? 300 : 400, (soFar) => {
+    if (!useLocal) return; // 직접 만든 발음이 없으면 발음이 모두 와야 보여줄 수 있으므로 마지막에 한 번에
+    let changed = false;
+    for (const k of ['pos', 'meaning', 'contextNote', 'etymology']) {
+      const v = field(soFar, k);
+      if (v !== undefined && seen[k] !== v) {
+        seen[k] = v;
+        changed = true;
+      }
+    }
+    if (changed) onPartial?.({ ...base, pos: seen.pos ?? '', meaning: seen.meaning ?? '', contextNote: seen.contextNote ?? '', etymology: seen.etymology ?? '' });
+  }, { timeoutMs: 60000, priority: 'user' });
   const j = extractJson<Partial<WordInfo>>(text);
   const syllables = Array.isArray(j.syllables)
     ? j.syllables
