@@ -1,5 +1,6 @@
 // 오픈소스 음성(Kokoro) 모델을 화면과 따로 도는 작업 스레드(Web Worker)에서 실행
 // → 모델을 불러오거나 문장 소리를 만드는 동안에도 화면(버튼·스크롤)이 멈추지 않음
+import './streamPolyfill'; // 반드시 가장 먼저: Safari에 없는 기능을 채워 넣음 (음성 엔진보다 먼저 실행되어야 함)
 import { KokoroTTS } from 'kokoro-js';
 import { env } from '@huggingface/transformers';
 import { phonemize } from 'phonemizer';
@@ -41,37 +42,10 @@ const onProgress = (p: { status?: string; progress?: number }) => {
   if (p?.status === 'progress' && typeof p.progress === 'number') ctx.postMessage({ progress: Math.round(p.progress) });
 };
 
-/** 그래픽 칩(WebGPU)을 쓸 수 있는지 (최신 아이패드·크롬 등) */
-async function gpuAvailable(): Promise<boolean> {
-  try {
-    const gpu = (self.navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu;
-    return !!gpu && !!(await gpu.requestAdapter());
-  } catch {
-    return false;
-  }
-}
-
-async function loadWasm(): Promise<KokoroTTS> {
+async function loadModel(): Promise<KokoroTTS> {
   ctx.postMessage({ stage: '모델 파일 받는 중…' });
   engineName = '기본 방식';
   return KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'q8', device: 'wasm', progress_callback: onProgress });
-}
-
-async function loadModel(): Promise<KokoroTTS> {
-  // 핸드폰·태블릿은 CPU(wasm) 계산이 멈추는 경우가 있어, 그래픽 칩(WebGPU)이 되면 먼저 시도하고 실패하면 기존 방식으로 되돌아감
-  if (isMobile && (await gpuAvailable())) {
-    try {
-      ctx.postMessage({ stage: '그래픽 칩용 모델 받는 중(약 326MB, 처음 한 번)…' });
-      const gpuModel = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: 'fp32', device: 'webgpu', progress_callback: onProgress });
-      ctx.postMessage({ stage: '그래픽 칩으로 시험 계산 중…' });
-      await gpuModel.generate('Hi.', { voice: 'af_heart' }); // 실제로 계산이 되는지 먼저 확인
-      engineName = '그래픽 칩';
-      return gpuModel;
-    } catch (err) {
-      ctx.postMessage({ stage: `그래픽 칩 사용 실패(${err instanceof Error ? err.message.slice(0, 60) : '오류'}), 기본 방식으로 전환…` });
-    }
-  }
-  return loadWasm();
 }
 
 function load(): Promise<KokoroTTS> {
