@@ -286,11 +286,19 @@ export function callAI(system: string, user: string, maxTokens: number, opts?: A
 export async function callAIStream(system: string, user: string, maxTokens: number, onText: (soFar: string) => void, opts?: AIOptions): Promise<string> {
   const key = getGeminiKeys()[geminiStart] ?? getGeminiKeys()[0];
   if (!key) throw new AIError('no-key', 'gemini', 'Gemini API 키가 없어요. 설정에서 입력해 주세요.');
+  // 일정 시간 아무 소식이 없으면(일부 기기에서 스트림이 멈춤) 끊고 일반 방식으로 대신함
+  const ctrl = new AbortController();
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const arm = (ms: number) => {
+    clearTimeout(idle);
+    idle = setTimeout(() => ctrl.abort(), ms);
+  };
   try {
+    arm(12000);
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      signal: opts?.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
+      signal: ctrl.signal,
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
         contents: [{ role: 'user', parts: [{ text: user }] }],
@@ -310,6 +318,7 @@ export async function callAIStream(system: string, user: string, maxTokens: numb
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      arm(12000);
       buf += dec.decode(value, { stream: true });
       let nl: number;
       while ((nl = buf.indexOf('\n')) >= 0) {
@@ -329,9 +338,11 @@ export async function callAIStream(system: string, user: string, maxTokens: numb
         }
       }
     }
+    clearTimeout(idle);
     if (!all) throw new Error('empty');
     return all;
   } catch {
+    clearTimeout(idle);
     return callAI(system, user, maxTokens, opts);
   }
 }
