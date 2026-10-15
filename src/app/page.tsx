@@ -54,10 +54,10 @@ export default function HomePage() {
 
   return (
     <>
-      <main className="page">
+      <main className="page home">
         <div className="between">
           <div>
-            <div className="muted" suppressHydrationWarning>
+            <div className="eyebrow" suppressHydrationWarning>
               {today}
             </div>
             <h1 className="page-title">내 자료</h1>
@@ -68,7 +68,7 @@ export default function HomePage() {
         </div>
 
         {mounted && !setupDone && (
-          <div className="card stack" style={{ borderColor: 'var(--teal)', borderWidth: 2 }}>
+          <div className="card stack" style={{ borderColor: 'var(--teal)' }}>
             <b>처음 오셨네요</b>
             <span className="muted">API 키 입력, 구글 드라이브 연결, 앱 설치를 차례로 안내해 드려요.</span>
             <Link href="/setup/" className="btn primary">
@@ -79,43 +79,47 @@ export default function HomePage() {
 
         <SyncBanner />
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-          <Link href="/review/" className="card hero" style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ fontSize: 13, opacity: 0.9 }}>오늘 복습할 용어</span>
-            <span style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.15 }}>{ready ? queue.length : '…'}</span>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{newCount > 0 ? `새 용어 ${newCount} 포함 · ` : ''}복습 시작 →</span>
-          </Link>
-          {lastRead ? (
-            <Link href={`/reader/?id=${lastRead.id}`} className="card" style={{ textDecoration: 'none', color: 'var(--ink)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span className="muted">이어서 읽기</span>
-              <span style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{lastRead.title}</span>
-              <span className="bar">
-                <span style={{ width: `${Math.round(((lastRead.lastPage + 1) / Math.max(1, lastRead.pageCount)) * 100)}%` }} />
+        <div className="home-grid">
+          <div className="home-side">
+            <Link href="/review/" className="card hero" style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', gap: 4, padding: '18px 20px' }}>
+              <span className="eyebrow" style={{ color: '#9fb6d1' }}>오늘의 복습</span>
+              <span className="metric">
+                {ready ? queue.length : '…'}
+                <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 6, opacity: 0.8 }}>개 용어</span>
               </span>
-              <span className="small">
-                {lastRead.lastPage + 1} / {lastRead.pageCount}쪽
+              <span style={{ fontSize: 13, opacity: 0.9 }}>{newCount > 0 ? `새 용어 ${newCount}개 포함 · ` : ''}복습 시작 →</span>
+            </Link>
+            {lastRead ? (
+              <Link href={`/reader/?id=${lastRead.id}`} className="card" style={{ textDecoration: 'none', color: 'var(--ink)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span className="eyebrow">이어서 읽기</span>
+                <span style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{lastRead.title}</span>
+                <span className="bar">
+                  <span style={{ width: `${Math.round(((lastRead.lastPage + 1) / Math.max(1, lastRead.pageCount)) * 100)}%` }} />
+                </span>
+                <span className="small">
+                  {lastRead.lastPage + 1} / {lastRead.pageCount}쪽
+                </span>
+              </Link>
+            ) : (
+              <div className="card stack" style={{ gap: 4 }}>
+                <span className="eyebrow">이어서 읽기</span>
+                <span className="small">아직 올린 자료가 없어요</span>
+              </div>
+            )}
+            <Link href="/upload/" className="upload-card">
+              <span className="icon-btn" style={{ background: 'var(--navy)', color: '#fff' }} aria-hidden="true">
+                <Icon name="upload" size={20} />
+              </span>
+              <span className="stack" style={{ gap: 2 }}>
+                <b style={{ fontSize: 15 }}>자료 올리기</b>
+                <span className="small">논문 · 전문서적 PDF, 강의 영상</span>
               </span>
             </Link>
-          ) : (
-            <div className="card stack" style={{ gap: 4 }}>
-              <span className="muted">이어서 읽기</span>
-              <span className="small">아직 올린 자료가 없어요</span>
-            </div>
-          )}
-        </div>
+          </div>
 
-        <Link href="/upload/" className="card" style={{ border: '2px dashed #9fb3bf', display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'var(--ink)' }}>
-          <span className="icon-btn" style={{ background: 'var(--teal)', color: '#fff' }} aria-hidden="true">
-            <Icon name="upload" size={20} />
-          </span>
-          <span className="stack" style={{ gap: 2 }}>
-            <b style={{ fontSize: 15 }}>PDF · 강의 영상 올리기</b>
-            <span className="small">논문 · 전문서적 · 강의 영상 (영상은 PC 권장)</span>
-          </span>
-        </Link>
-
+          <div className="home-main">
         {docs.length > 0 && (
-          <section className="stack">
+          <section className="stack" style={{ marginTop: 0 }}>
             <div className="seg" role="tablist" aria-label="자료 종류">
               {(
                 [
@@ -166,6 +170,9 @@ export default function HomePage() {
             )}
           </section>
         )}
+
+          </div>
+        </div>
 
         <AlphabetLinkCard />
       </main>

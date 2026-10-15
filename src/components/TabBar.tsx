@@ -16,6 +16,13 @@ export function TabBar() {
   return (
     <nav className="tabbar" aria-label="메인 메뉴">
       <div className="tabbar-inner">
+        <Link href="/" className="brand" aria-label="영어 서재 홈">
+          <span className="brand-mark" aria-hidden="true">E</span>
+          <span>
+            <b>영어 서재</b>
+            <small>MEDICAL ENGLISH</small>
+          </span>
+        </Link>
         {TABS.map((t) => {
           const active = t.match(path);
           return (
