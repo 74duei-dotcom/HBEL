@@ -34,6 +34,20 @@ self.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
 // 작업 스레드가 살아 있는지 알리는 신호 (계산에 몰두하면 신호가 멈추므로 '계산 중'과 '죽음'을 가늠하는 단서)
 setInterval(() => ctx.postMessage({ beat: Date.now() }), 1000);
 
+// 진단용: 이 기기가 지원하는 기능과, 엔진 안에서 조용히 난 오류를 기억해 두었다가 멈췄을 때 함께 알림
+const caps = `v${process.env.NEXT_PUBLIC_BUILD_ID ?? '?'} 스트림반복:${'asyncIterator' in ReadableStream.prototype ? 'O' : 'X'} 압축풀기:${typeof DecompressionStream !== 'undefined' ? 'O' : 'X'} Blob스트림:${typeof Blob.prototype.stream === 'function' ? 'O' : 'X'}`;
+let hiddenError = '';
+self.addEventListener('unhandledrejection', (ev) => {
+  const r = (ev as PromiseRejectionEvent).reason;
+  hiddenError = `숨은오류: ${(r instanceof Error ? r.message : String(r)).slice(0, 120)}`;
+  ctx.postMessage({ caps: `${caps} ${hiddenError}` });
+});
+self.addEventListener('error', (ev) => {
+  hiddenError = `숨은오류: ${String((ev as ErrorEvent).message).slice(0, 120)}`;
+  ctx.postMessage({ caps: `${caps} ${hiddenError}` });
+});
+ctx.postMessage({ caps });
+
 let engineName = '';
 let model: Promise<KokoroTTS> | null = null;
 let chain: Promise<unknown> = Promise.resolve();
@@ -96,7 +110,7 @@ ctx.onmessage = (e) => {
         const audio = await withLimit(tts.generate(text ?? '', { voice: (voice ?? 'af_heart') as 'af_heart' }), 240_000, '2·3/3 소리 계산');
         ctx.postMessage({ id, blob: audio.toBlob() });
       } catch (err) {
-        ctx.postMessage({ id, error: `${err instanceof Error ? err.message : String(err)} [${lastUrl.replace(/^https?:\/\//, '').slice(0, 90)}]` });
+        ctx.postMessage({ id, error: `${err instanceof Error ? err.message : String(err)} [${caps} ${hiddenError}]` });
       }
     });
 };

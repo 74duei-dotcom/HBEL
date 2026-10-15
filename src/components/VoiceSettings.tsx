@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { getGeminiKeys } from '@/lib/ai';
 import { getTtsEngine, setTtsEngine, testGeminiVoice, testLocalVoice } from '@/lib/speech';
 import type { TtsEngine } from '@/lib/speech';
-import { getBeatAge, getLocalStage } from '@/lib/localTts';
+import { getBeatAge, getLocalCaps, getLocalStage } from '@/lib/localTts';
 import { errorMessage } from '@/lib/util';
 
 export function VoiceSettings() {
@@ -29,7 +29,7 @@ export function VoiceSettings() {
   useEffect(() => {
     if (!busy || engine !== 'local') return;
     const start = Date.now();
-    const t = setInterval(() => setStage(`${getLocalStage()} ${Math.round((Date.now() - start) / 1000)}초 · 작업 신호 ${getBeatAge() <= 3 ? '정상' : `${getBeatAge()}초째 없음`}`), 500);
+    const t = setInterval(() => setStage(`${getLocalStage()} ${Math.round((Date.now() - start) / 1000)}초 · 작업 신호 ${getBeatAge() <= 3 ? '정상' : `${getBeatAge()}초째 없음`} · ${getLocalCaps()}`), 500);
     return () => {
       clearInterval(t);
       setStage('');
@@ -70,6 +70,7 @@ export function VoiceSettings() {
       {engine !== 'local' && !hasKey && <div className="banner warn">Gemini 음성을 쓰려면 위의 AI 연결에서 Gemini 키를 넣어 주세요.</div>}
       {msg && <div className="banner err">{msg}</div>}
       {ok && <div className="banner info">{ok}</div>}
+      <span className="small">앱 버전 {process.env.NEXT_PUBLIC_BUILD_ID ?? '?'}</span>
       <button className="btn" disabled={busy || (engine !== 'local' && !hasKey)} onClick={() => void test()}>
         {busy ? (engine === 'local' ? `${stage || '시작하는 중…'} (처음엔 몇 분 걸릴 수 있어요)` : '만드는 중…') : engine === 'local' ? '오픈소스 음성 소리 확인' : 'Gemini 음성 소리 확인'}
       </button>
